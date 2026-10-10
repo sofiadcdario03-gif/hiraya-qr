@@ -35,6 +35,8 @@ export default function App() {
   // ── theme change ───────────────────────────────────────────────
   const handleThemeChange = async (id) => {
     setSelectedTheme(id);
+    setIsTransitioning(false);
+    setView('world');
     if (currentUrl) await generateQR(currentUrl, themes[id].colors);
   };
 
