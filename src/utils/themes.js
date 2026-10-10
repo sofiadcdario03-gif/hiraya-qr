@@ -6,7 +6,7 @@
  *   secondary – accent environment colour
  *   accent    – highlight / gold tone
  *   background – sky / ambient backdrop
- *   dark      – QR module dark colour  (must contrast ≥ 3:1 against light)
+ *   dark      – QR module dark colour  (must contrast ≥ 4.5:1 against light)
  *   light     – QR module light colour (background of the QR image)
  *
  * The 3-D scene uses primary / secondary / accent / background.

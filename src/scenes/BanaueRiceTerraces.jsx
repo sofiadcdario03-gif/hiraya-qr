@@ -1,5 +1,5 @@
 
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useLayoutEffect, useEffect } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 
@@ -106,7 +106,6 @@ function buildMatrix() {
 
   return matrix;
 }
-
 
 /* -------------------- GEOMETRY HELPERS -------------------- */
 
@@ -874,11 +873,136 @@ function QRGround({ matrix }) {
         />
       ))}
 
-      {/* Underlay provides a clean border around the terrain */}
       <Box
         pos={[0, -0.32, 0]}
         size={[GRID * TILE + 0.24, 0.08, GRID * TILE + 0.24]}
         color={COLORS.floor}
+        shadow={false}
+      />
+    </group>
+  );
+}
+
+function EncodedQRGround({ modules }) {
+  const darkMeshRef = useRef();
+  const lightMeshRef = useRef();
+  const quietZone = 4;
+  const moduleCount = modules ? modules.size + quietZone * 2 : GRID;
+  const groundSize = GRID * TILE + 0.18;
+  const cellSize = groundSize / moduleCount;
+  const geometry = useMemo(() => {
+    const tileGeometry = new THREE.BoxGeometry(cellSize, 1, cellSize);
+    return tileGeometry;
+  }, [cellSize]);
+
+  useLayoutEffect(() => {
+    const darkMesh = darkMeshRef.current;
+    const lightMesh = lightMeshRef.current;
+    if (!darkMesh || !lightMesh) return;
+    const dummy = new THREE.Object3D();
+    const darkColor = new THREE.Color(modules?.darkColor || COLORS.wall);
+    const lightColor = new THREE.Color(modules?.lightColor || COLORS.floor);
+    let darkCount = 0;
+    let lightCount = 0;
+
+    for (let row = 0; row < moduleCount; row++) {
+      for (let col = 0; col < moduleCount; col++) {
+        const qrRow = row - quietZone;
+        const qrCol = col - quietZone;
+        const insideCode = modules && qrRow >= 0 && qrRow < modules.size &&
+          qrCol >= 0 && qrCol < modules.size;
+        const dark = insideCode &&
+          modules.data[qrRow * modules.size + qrCol] === 1;
+        const height = dark ? 0.065 : H_BASE;
+
+        dummy.position.set(
+          (col - (moduleCount - 1) / 2) * cellSize,
+          height / 2,
+          (row - (moduleCount - 1) / 2) * cellSize
+        );
+        dummy.scale.set(1, height, 1);
+        dummy.updateMatrix();
+        if (dark) {
+          const shade = 0.94 + ((row * 13 + col * 7) % 5) * 0.015;
+          darkMesh.setMatrixAt(darkCount, dummy.matrix);
+          darkMesh.setColorAt(darkCount++, darkColor.clone().multiplyScalar(shade));
+        } else {
+          lightMesh.setMatrixAt(lightCount, dummy.matrix);
+          lightMesh.setColorAt(lightCount++, lightColor);
+        }
+      }
+    }
+
+    darkMesh.count = darkCount;
+    lightMesh.count = lightCount;
+    darkMesh.instanceMatrix.needsUpdate = true;
+    lightMesh.instanceMatrix.needsUpdate = true;
+    if (darkMesh.instanceColor) darkMesh.instanceColor.needsUpdate = true;
+    if (lightMesh.instanceColor) lightMesh.instanceColor.needsUpdate = true;
+  }, [cellSize, moduleCount, modules, quietZone]);
+
+  useEffect(() => () => geometry.dispose(), [geometry]);
+
+  return (
+    <group>
+      <Box
+        pos={[0, -0.06, 0]}
+        size={[groundSize + 0.12, 0.12, groundSize + 0.12]}
+        color={modules?.lightColor || COLORS.floor}
+        shadow={false}
+      />
+
+      <instancedMesh
+        ref={lightMeshRef}
+        args={[geometry, undefined, moduleCount * moduleCount]}
+        frustumCulled={false}
+      >
+        <meshBasicMaterial color="#ffffff" toneMapped={false} />
+      </instancedMesh>
+      <instancedMesh
+        ref={darkMeshRef}
+        args={[geometry, undefined, moduleCount * moduleCount]}
+        frustumCulled={false}
+      >
+        <meshBasicMaterial color="#ffffff" toneMapped={false} />
+      </instancedMesh>
+
+      <Box
+        pos={[0, -0.27, 0]}
+        size={[groundSize + 0.34, 0.14, groundSize + 0.34]}
+        color={COLORS.soil}
+      />
+
+      <Box
+        pos={[0, -0.18, 0]}
+        size={[groundSize + 0.24, 0.08, groundSize + 0.24]}
+        color={COLORS.baseDark}
+      />
+
+      <Box
+        pos={[0, -0.025, 0]}
+        size={[groundSize + 0.12, 0.05, groundSize + 0.12]}
+        color={COLORS.base}
+      />
+
+      {[
+        [-groundSize / 2 - 0.035, 0.005, 0, [0.03, 0.04, groundSize + 0.06]],
+        [groundSize / 2 + 0.035, 0.005, 0, [0.03, 0.04, groundSize + 0.06]],
+        [0, 0.005, -groundSize / 2 - 0.035, [groundSize + 0.06, 0.04, 0.03]],
+        [0, 0.005, groundSize / 2 + 0.035, [groundSize + 0.06, 0.04, 0.03]],
+      ].map(([x, y, z, size], index) => (
+        <Box
+          key={index}
+          pos={[x, y, z]}
+          size={size}
+          color={COLORS.waterHighlight}
+        />
+      ))}
+
+      <Box
+        pos={[0, -0.27, 0]}
+        size={[groundSize + 0.34, 0.14, groundSize + 0.34]}
+        color={COLORS.soil}
         shadow={false}
       />
     </group>
@@ -983,14 +1107,77 @@ function IrrigationChannel({ position, length, rotation = 0 }) {
 /* -------------------- COMPLETE SCENE -------------------- */
 
 export default function BanaueRiceTerraces({
-  view,
-  themeColors,
+  qrModules,
 }) {
   const sceneRef = useRef();
   const groupRef = useRef();
-  const matrix = useMemo(() => buildMatrix(), []);
+  const worldGroundRef = useRef();
+  const encodedGroundRef = useRef();
+  const terrainRef = useRef();
+  const worldGroundMaterials = useRef([]);
+  const encodedGroundMaterials = useRef([]);
+  const terrainMaterials = useRef([]);
+  const worldGroundMatrix = useMemo(() => buildMatrix(), []);
 
-  useFrame((state, delta) => {
+  const captureMaterials = (group, entries) => {
+    if (!group || entries.current.length) return;
+    const materials = new Set();
+    group.traverse((object) => {
+      if (!object.material) return;
+      for (const material of Array.isArray(object.material)
+        ? object.material
+        : [object.material]) {
+        materials.add(material);
+      }
+    });
+    entries.current = Array.from(materials, (material) => ({
+      material,
+      opacity: material.opacity,
+      transparent: material.transparent,
+      depthWrite: material.depthWrite,
+    }));
+  };
+
+  const setMaterialsOpacity = (entries, opacity) => {
+    for (const entry of entries) {
+      const { material } = entry;
+      const transparent = entry.transparent || opacity < 1;
+      const depthWrite = opacity === 1 && entry.depthWrite;
+      if (
+        material.transparent !== transparent ||
+        material.depthWrite !== depthWrite
+      ) {
+        material.transparent = transparent;
+        material.depthWrite = depthWrite;
+        material.needsUpdate = true;
+      }
+      material.opacity = entry.opacity * opacity;
+    }
+  };
+
+  useLayoutEffect(() => {
+    captureMaterials(worldGroundRef.current, worldGroundMaterials);
+    captureMaterials(encodedGroundRef.current, encodedGroundMaterials);
+    captureMaterials(terrainRef.current, terrainMaterials);
+    return () => {
+      for (const entries of [
+        worldGroundMaterials.current,
+        encodedGroundMaterials.current,
+        terrainMaterials.current,
+      ]) {
+        for (const entry of entries) {
+          entry.material.opacity = entry.opacity;
+          entry.material.transparent = entry.transparent;
+          entry.material.depthWrite = entry.depthWrite;
+        }
+      }
+      worldGroundMaterials.current = [];
+      encodedGroundMaterials.current = [];
+      terrainMaterials.current = [];
+    };
+  }, []);
+
+  useFrame((_, delta) => {
     if (!sceneRef.current) return;
 
     // Get transition progress from parent TransitionRig
@@ -1016,6 +1203,36 @@ export default function BanaueRiceTerraces({
       groupRef.current.scale.y = 1 - flattenFactor * 0.95;
       groupRef.current.position.y = -flattenFactor * 0.5;
     }
+
+    const terrainOpacity = 1 - THREE.MathUtils.smoothstep(
+      0.48,
+      0.96,
+      transitionProgress
+    );
+
+    const worldGroundOpacity = 1 - THREE.MathUtils.smoothstep(
+      0.24,
+      0.58,
+      transitionProgress
+    );
+    const encodedGroundOpacity = THREE.MathUtils.smoothstep(
+      0.38,
+      0.88,
+      transitionProgress
+    );
+    if (worldGroundRef.current) {
+      worldGroundRef.current.visible = !isQRView && worldGroundOpacity > 0.001;
+      setMaterialsOpacity(worldGroundMaterials.current, worldGroundOpacity);
+    }
+    if (encodedGroundRef.current) {
+      encodedGroundRef.current.visible = encodedGroundOpacity > 0.001;
+      setMaterialsOpacity(encodedGroundMaterials.current, encodedGroundOpacity);
+    }
+    if (terrainRef.current) {
+      terrainRef.current.visible = !isQRView;
+    }
+    // Three.js materials are animated imperatively to dissolve terrain into the QR.
+    setMaterialsOpacity(terrainMaterials.current, terrainOpacity);
   });
 
   return (
@@ -1025,9 +1242,11 @@ export default function BanaueRiceTerraces({
       rotation={[0, Math.PI / 4, 0]}
     >
       <group ref={groupRef}>
-        {/* QR-code patterned ground */}
-        <QRGround matrix={matrix} />
+        <group ref={worldGroundRef}>
+          <QRGround matrix={worldGroundMatrix} />
+        </group>
 
+        <group ref={terrainRef}>
         {/* Broad, irregular green landform */}
         <LandscapeBase />
 
@@ -1142,6 +1361,10 @@ export default function BanaueRiceTerraces({
       <Cloud position={[-0.8, 1.8, -0.5]} scale={0.8} seed={42} />
       <Cloud position={[0.9, 2.0, -0.3]} scale={0.6} seed={78} />
       <Cloud position={[0, 2.2, 0.6]} scale={0.7} seed={123} />
+        </group>
+      </group>
+      <group ref={encodedGroundRef} position={[0, 0.45, 0]}>
+      <EncodedQRGround modules={qrModules} />
       </group>
     </group>
   );

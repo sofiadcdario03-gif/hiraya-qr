@@ -7,32 +7,15 @@ import QRCode from 'qrcode';
  * colors for the QR image.  We also accept { primary, secondary, accent }
  * from theme definitions and map them to dark/light automatically.
  *
- * Contrast is enforced: if the computed luminance ratio is below 3:1 we
+ * Contrast is enforced: if the computed luminance ratio is below 4.5:1 we
  * fall back to near-black / near-white so the code stays scannable.
  */
 export async function generateQRCode(url, colorPalette = {}, options = {}) {
-  const { dark: darkIn, light: lightIn, primary, accent } = colorPalette;
-
-  // Resolve colours --------------------------------------------------
-  // Use explicit dark/light if supplied, otherwise derive from primary/accent.
-  let darkColor  = darkIn  || primary  || '#000000';
-  let lightColor = lightIn || accent   || '#FFFFFF';
-
-  // Ensure adequate contrast (WCAG relative luminance).
-  if (!hasAdequateContrast(darkColor, lightColor)) {
-    // Fall back to a tinted-but-readable pair: very dark primary on ivory.
-    darkColor  = darkenToTarget(darkColor, 0.06);   // luminance ≤ 0.06
-    lightColor = '#fef3c7';                          // warm ivory
-    // If still not sufficient just go monochrome.
-    if (!hasAdequateContrast(darkColor, lightColor)) {
-      darkColor  = '#111111';
-      lightColor = '#FFFDF5';
-    }
-  }
+  const { darkColor, lightColor } = resolveQRColors(colorPalette);
 
   const defaultOptions = {
     width: 512,
-    margin: 2,
+    margin: 4,
     color: { dark: darkColor, light: lightColor },
     errorCorrectionLevel: 'M',
     ...options,
@@ -44,6 +27,39 @@ export async function generateQRCode(url, colorPalette = {}, options = {}) {
     console.error('QR generation failed:', err);
     throw new Error('Failed to generate QR code');
   }
+}
+
+export function createQRCodeModules(url, colorPalette = {}, options = {}) {
+  const qr = QRCode.create(url, {
+    ...options,
+    errorCorrectionLevel: options.errorCorrectionLevel || 'M',
+  });
+
+  const { darkColor, lightColor } = resolveQRColors(colorPalette);
+  return {
+    size: qr.modules.size,
+    data: new Uint8Array(qr.modules.data),
+    darkColor,
+    lightColor,
+  };
+}
+
+function resolveQRColors(colorPalette) {
+  const { dark: darkIn, light: lightIn, primary, accent } = colorPalette;
+  let darkColor = darkIn || primary || '#000000';
+  let lightColor = lightIn || accent || '#FFFFFF';
+
+  if (!hasAdequateContrast(darkColor, lightColor)) {
+    darkColor = darkenToTarget(darkColor, 0.06);
+    lightColor = '#fef3c7';
+
+    if (!hasAdequateContrast(darkColor, lightColor)) {
+      darkColor = '#111111';
+      lightColor = '#FFFDF5';
+    }
+  }
+
+  return { darkColor, lightColor };
 }
 
 // ── URL validation ────────────────────────────────────────────────
@@ -86,7 +102,7 @@ function contrastRatio(a, b) {
 }
 
 function hasAdequateContrast(dark, light) {
-  try { return contrastRatio(dark, light) >= 3.0; }
+  try { return contrastRatio(dark, light) >= 4.5; }
   catch { return false; }
 }
 

@@ -20,7 +20,7 @@ export default function App() {
   const [notification, setNotification]       = useState(null);
   const [urlDraft, setUrlDraft]               = useState('https://hiraya-qr.vercel.app');
 
-  const { qrDataUrl, qrTexture, isLoading, error, generateQR } = useQRCode();
+  const { qrDataUrl, qrTexture, qrModules, isLoading, error, generateQR } = useQRCode();
 
   // ── URL submit ─────────────────────────────────────────────────
   const handleSubmit = async (e) => {
@@ -220,6 +220,7 @@ export default function App() {
             <WorldCanvas
               view={view}
               qrTexture={qrTexture}
+              qrModules={qrModules}
               isTransitioning={isTransitioning}
               onTransitionComplete={handleTransitionComplete}
               selectedTheme={selectedTheme}
