@@ -4,17 +4,14 @@ import * as THREE from "three";
 
 // ============================================================
 // BanaueRiceTerraces.jsx
-// Curved Ifugao rice terraces on a continuous mountain landscape
-// Preserves the 25 x 25 QR-inspired ground and themeColors API.
+// A grand, layered Banaue / Ifugao rice-terrace landscape.
+// Preserves the QR-inspired ground and themeColors API.
 // ============================================================
 
 const GRID = 25;
 const TILE = 0.118;
 const HALF = (GRID * TILE) / 2;
 const ROOT_Y = -0.45;
-const H_BASE = 0.022;
-const H_DARK = 0.072;
-const H_FINDER = 0.095;
 
 const materialCache = new Map();
 
@@ -27,7 +24,6 @@ function mat(color, roughness = 0.85, extra = {}) {
       new THREE.MeshStandardMaterial({
         color,
         roughness,
-        flatShading: false,
         ...extra,
       })
     );
@@ -35,10 +31,6 @@ function mat(color, roughness = 0.85, extra = {}) {
 
   return materialCache.get(key);
 }
-
-// ------------------------------------------------------------
-// Deterministic random generator
-// ------------------------------------------------------------
 
 function rng(seed) {
   let value = seed >>> 0;
@@ -58,12 +50,7 @@ function mix(a, b, t) {
 }
 
 function blendHex(a, b, factor) {
-  const ca = new THREE.Color(a);
-  const cb = new THREE.Color(b);
-
-  return `#${ca
-    .lerp(cb, factor)
-    .getHexString()}`;
+  return `#${new THREE.Color(a).lerp(new THREE.Color(b), factor).getHexString()}`;
 }
 
 function darken(color, factor) {
@@ -103,7 +90,6 @@ function isFinderZone(x, z) {
 
 function buildMatrix() {
   const random = rng(7821);
-
   const matrix = Array.from({ length: GRID }, () =>
     Array(GRID).fill(false)
   );
@@ -189,38 +175,38 @@ function resolveColors(theme = {}) {
 }
 
 // ------------------------------------------------------------
-// Basic geometry components
+// Basic geometry
 // ------------------------------------------------------------
 
 function Box({
-  pos,
-  size,
-  color,
+  pos = [0, 0, 0],
+  size = [1, 1, 1],
+  color = "#ffffff",
   rot = [0, 0, 0],
   castShadow = true,
   receiveShadow = true,
+  material,
 }) {
   return (
     <mesh
       position={pos}
-      scale={size}
       rotation={rot}
-      material={mat(color)}
+      material={material || mat(color)}
       castShadow={castShadow}
       receiveShadow={receiveShadow}
     >
-      <boxGeometry args={[1, 1, 1]} />
+      <boxGeometry args={size} />
     </mesh>
   );
 }
 
 function Cylinder({
-  pos,
+  pos = [0, 0, 0],
   top = 0.02,
   bottom = 0.04,
   height = 0.1,
   segments = 7,
-  color,
+  color = "#ffffff",
   rot = [0, 0, 0],
 }) {
   return (
@@ -231,8 +217,27 @@ function Cylinder({
       castShadow
       receiveShadow
     >
-      <cylinderGeometry
-        args={[top, bottom, height, segments]}
+      <cylinderGeometry args={[top, bottom, height, segments]} />
+    </mesh>
+  );
+}
+
+function Orb({
+  pos = [0, 0, 0],
+  radius = 0.1,
+  color = "#ffffff",
+  scale = [1, 1, 1],
+  emissive = "#000000",
+  emissiveIntensity = 0,
+}) {
+  return (
+    <mesh position={pos} scale={scale} castShadow receiveShadow>
+      <sphereGeometry args={[radius, 10, 8]} />
+      <meshStandardMaterial
+        color={color}
+        roughness={0.9}
+        emissive={emissive}
+        emissiveIntensity={emissiveIntensity}
       />
     </mesh>
   );
@@ -245,9 +250,8 @@ function GlowPx({ pos, color, size = 0.025 }) {
     if (!ref.current) return;
 
     const t = clock.elapsedTime;
-    ref.current.scale.setScalar(
-      0.9 + Math.sin(t * 2.2 + pos[0] * 3) * 0.1
-    );
+    const pulse = 0.9 + Math.sin(t * 2.2 + pos[0] * 3) * 0.1;
+    ref.current.scale.setScalar(pulse);
   });
 
   return (
@@ -259,57 +263,63 @@ function GlowPx({ pos, color, size = 0.025 }) {
 }
 
 // ------------------------------------------------------------
-// Terrain height function
+// Mountain profiles
 //
-// Overlapping, broad hills instead of stacked square platforms.
+// The terraces follow multiple connected, curved mountain
+// contours rather than appearing as square stacked platforms.
 // ------------------------------------------------------------
 
 const HILLS = [
   {
-    x: -0.28,
-    z: -0.48,
-    width: 0.88,
-    depth: 0.64,
-    height: 0.53,
+    x: -0.34,
+    z: -0.25,
+    width: 1.02,
+    depth: 0.91,
+    height: 0.88,
     seed: 2.1,
+    levels: 12,
   },
   {
     x: 0.36,
-    z: -0.52,
-    width: 0.72,
-    depth: 0.62,
-    height: 0.45,
+    z: -0.31,
+    width: 0.93,
+    depth: 0.84,
+    height: 0.79,
     seed: 5.4,
+    levels: 11,
   },
   {
-    x: 0.03,
-    z: -0.12,
-    width: 0.88,
-    depth: 0.67,
-    height: 0.43,
+    x: 0.02,
+    z: -0.11,
+    width: 0.82,
+    depth: 0.75,
+    height: 0.66,
     seed: 8.3,
+    levels: 10,
   },
 ];
 
-function hillHeight(x, z, hill) {
+function hillProfile(x, z, hill) {
   const dx = (x - hill.x) / hill.width;
   const dz = (z - hill.z) / hill.depth;
   const distance = dx * dx + dz * dz;
 
-  if (distance > 4.5) return 0;
+  if (distance >= 1.15) return 0;
 
-  const broad = Math.exp(-distance * 1.65);
-  const shoulder = Math.exp(-distance * 0.55);
+  const broad = Math.pow(Math.max(0, 1 - distance), 0.72);
+  const shoulder = Math.exp(-distance * 1.35);
 
-  const unevenness =
+  const irregularity =
     Math.sin(x * 13 + hill.seed) *
       Math.cos(z * 11 + hill.seed * 2) *
-      0.018 +
-    Math.sin(x * 22 - z * 15 + hill.seed) * 0.008;
+      0.024 +
+    Math.sin(x * 21 - z * 16 + hill.seed) * 0.012;
 
   return Math.max(
     0,
-    hill.height * broad + hill.height * 0.12 * shoulder + unevenness
+    hill.height * broad * 0.76 +
+      hill.height * 0.23 * shoulder +
+      irregularity
   );
 }
 
@@ -317,24 +327,24 @@ function terrainHeight(x, z) {
   let height = 0;
 
   for (const hill of HILLS) {
-    height = Math.max(height, hillHeight(x, z, hill));
+    height = Math.max(height, hillProfile(x, z, hill));
   }
 
-  // The front of the landscape gently falls away into the valley.
-  const valleyFade = clamp((0.58 - z) / 0.6, 0, 1);
+  // A steep but gradual descent toward the front valley.
+  const frontFade = clamp((0.8 - z) / 0.92, 0, 1);
 
-  return height * valleyFade;
+  return height * frontFade;
 }
 
 // ------------------------------------------------------------
-// Continuous terrain mesh
+// Natural mountain mesh
 // ------------------------------------------------------------
 
 function createTerrainGeometry() {
-  const segmentsX = 100;
-  const segmentsZ = 90;
-  const width = 2.8;
-  const depth = 2.25;
+  const segmentsX = 110;
+  const segmentsZ = 100;
+  const width = 2.95;
+  const depth = 2.72;
 
   const geometry = new THREE.PlaneGeometry(
     width,
@@ -348,9 +358,9 @@ function createTerrainGeometry() {
   const positions = geometry.attributes.position;
   const colors = [];
 
-  const low = new THREE.Color("#415B3F");
-  const mid = new THREE.Color("#627F50");
-  const high = new THREE.Color("#87976A");
+  const low = new THREE.Color("#3D573C");
+  const middle = new THREE.Color("#617F4F");
+  const high = new THREE.Color("#8C9D6B");
   const random = rng(3041);
 
   for (let i = 0; i < positions.count; i++) {
@@ -358,21 +368,22 @@ function createTerrainGeometry() {
     const z = positions.getZ(i);
 
     const height =
-      terrainHeight(x, z) +
-      (random() - 0.5) * 0.008;
+      terrainHeight(x, z) + (random() - 0.5) * 0.006;
 
     positions.setY(i, height);
 
     const color = new THREE.Color();
 
     if (height < 0.12) {
-      color.copy(low).lerp(mid, height / 0.12);
+      color.copy(low).lerp(middle, height / 0.12);
     } else {
-      color.copy(mid).lerp(high, clamp((height - 0.12) / 0.42, 0, 1));
+      color
+        .copy(middle)
+        .lerp(high, clamp((height - 0.12) / 0.7, 0, 1));
     }
 
-    const variation = (random() - 0.5) * 0.07;
-    color.offsetHSL(0, variation * 0.2, variation);
+    const variation = (random() - 0.5) * 0.045;
+    color.offsetHSL(0, variation * 0.18, variation);
 
     colors.push(color.r, color.g, color.b);
   }
@@ -387,49 +398,9 @@ function createTerrainGeometry() {
   return geometry;
 }
 
-function MountainTerrain({ C }) {
-  const geometry = useMemo(() => createTerrainGeometry(), []);
-
-  return (
-    <group>
-      <mesh
-        geometry={geometry}
-        position={[0, -0.012, 0]}
-        receiveShadow
-        castShadow
-      >
-        <meshStandardMaterial
-          vertexColors
-          roughness={1}
-          metalness={0}
-        />
-      </mesh>
-
-      {/* Forest-covered distant ridges */}
-      <DistantRidge
-        position={[-0.83, 0.04, -0.78]}
-        scale={[0.88, 0.72, 0.48]}
-        color={C.mountainDark}
-      />
-
-      <DistantRidge
-        position={[0.68, 0.025, -0.8]}
-        scale={[0.92, 0.67, 0.46]}
-        color={C.mountain}
-      />
-
-      <DistantRidge
-        position={[0.02, 0.015, -0.96]}
-        scale={[1.05, 0.58, 0.42]}
-        color={C.distantMountain}
-      />
-    </group>
-  );
-}
-
 function DistantRidge({ position, scale, color }) {
   const geometry = useMemo(() => {
-    const geo = new THREE.SphereGeometry(1, 32, 18);
+    const geo = new THREE.SphereGeometry(1, 32, 20);
     const positions = geo.attributes.position;
 
     for (let i = 0; i < positions.count; i++) {
@@ -438,8 +409,8 @@ function DistantRidge({ position, scale, color }) {
       const z = positions.getZ(i);
 
       const roughness =
-        Math.sin(x * 7 + z * 3) * 0.025 +
-        Math.cos(z * 9 + y * 4) * 0.018;
+        Math.sin(x * 7 + z * 3) * 0.028 +
+        Math.cos(z * 9 + y * 4) * 0.02;
 
       positions.setXYZ(
         i,
@@ -450,6 +421,7 @@ function DistantRidge({ position, scale, color }) {
     }
 
     geo.computeVertexNormals();
+
     return geo;
   }, []);
 
@@ -465,74 +437,151 @@ function DistantRidge({ position, scale, color }) {
   );
 }
 
+function MountainTerrain({ C }) {
+  const geometry = useMemo(() => createTerrainGeometry(), []);
+
+  return (
+    <group>
+      <mesh
+        geometry={geometry}
+        position={[0, -0.018, 0]}
+        receiveShadow
+        castShadow
+      >
+        <meshStandardMaterial vertexColors roughness={1} />
+      </mesh>
+
+      {/* Layered mountain ridges behind the paddies */}
+      <DistantRidge
+        position={[-0.88, 0.18, -0.78]}
+        scale={[0.82, 0.76, 0.42]}
+        color={C.mountainDark}
+      />
+
+      <DistantRidge
+        position={[0.78, 0.16, -0.82]}
+        scale={[0.92, 0.78, 0.43]}
+        color={C.mountain}
+      />
+
+      <DistantRidge
+        position={[0.02, 0.2, -0.96]}
+        scale={[1.05, 0.76, 0.4]}
+        color={C.distantMountain}
+      />
+
+      {/* Dark forest band below the far ridge */}
+      {Array.from({ length: 21 }, (_, i) => {
+        const x = -1.24 + i * 0.124;
+        const z = -0.83 + Math.sin(i * 0.68) * 0.07;
+        const y = terrainHeight(x, z) + 0.02;
+
+        return (
+          <Orb
+            key={`ridge-tree-${i}`}
+            pos={[x, y, z]}
+            radius={0.11 + (i % 3) * 0.015}
+            scale={[1.15, 1.3, 0.9]}
+            color={i % 2 ? C.mountainDark : C.forestGreen}
+          />
+        );
+      })}
+    </group>
+  );
+}
+
 // ------------------------------------------------------------
-// Curved terrace mesh generation
+// Curved terrace geometry
 //
-// Each terrace is a ribbon following the hill contour.
-// A separate narrow retaining wall connects its lower edge
-// to the next paddy, avoiding floating square platforms.
+// Every terrace is a broad, curved ribbon following a hill's
+// contour. Its upper surface and retaining wall are separate.
 // ------------------------------------------------------------
 
+function terracePoint(hill, level, u, levels) {
+  const normalizedX = u * 2 - 1;
+
+  const edge = Math.sqrt(
+    Math.max(0, 1 - normalizedX * normalizedX)
+  );
+
+  const x = hill.x + normalizedX * hill.width * 0.98;
+
+  // Curved contour bends, similar to terraces wrapping a slope.
+  const bend =
+    normalizedX * normalizedX * 0.12 +
+    Math.sin(normalizedX * 3.1 + hill.seed) * 0.045;
+
+  const z =
+    hill.z +
+    bend +
+    (level / levels - 0.5) * hill.depth * 1.22;
+
+  const heightRatio = level / levels;
+
+  const y =
+    0.055 +
+    heightRatio * hill.height * 0.62 +
+    edge * hill.height * 0.14 +
+    Math.sin(normalizedX * 4.2 + hill.seed) * 0.012;
+
+  return {
+    x,
+    z,
+    y,
+    edge,
+    normalizedX,
+  };
+}
+
 function createTerraceGeometry(hill, level, levels) {
-  const segments = 72;
-  const widthX = hill.width * (0.98 - level * 0.035);
-  const bandDepth = 0.075 + (level % 3) * 0.008;
+  if (!hill || !hill.width || !hill.height || !hill.depth || levels <= 0) {
+    return new THREE.BufferGeometry();
+  }
+
+  const segments = 96;
+  const t = level / levels;
+
+  const width = hill.width * (1 - t * 0.28);
+  const y = 0.10 + level * hill.height / levels;
+  const zCenter = hill.z - level * hill.depth * 0.72 / levels;
+
   const positions = [];
   const indices = [];
+  const colors = [];
 
   for (let i = 0; i <= segments; i++) {
     const u = i / segments;
-    const x = mix(-widthX, widthX, u);
+    const x = (u - 0.5) * width;
+    const contour =
+      Math.sin(u * Math.PI) * 0.075 +
+      Math.sin(u * Math.PI * 2) * 0.018;
 
-    const normalizedX = x / widthX;
-    const edgeFalloff = Math.sqrt(
-      Math.max(0, 1 - normalizedX * normalizedX)
-    );
+    const z = zCenter + contour;
 
-    const contourBend =
-      0.10 * normalizedX * normalizedX +
-      Math.sin(normalizedX * 3.2 + hill.seed) * 0.035;
+    positions.push(x, y, z);
+    positions.push(x, y, z + 0.04);
 
-    const zCenter =
-      hill.z +
-      contourBend +
-      (level / levels) * hill.depth * 0.92;
-
-    const terraceY =
-      0.035 +
-      level * 0.039 +
-      edgeFalloff * 0.018 +
-      Math.sin(normalizedX * 4 + hill.seed) * 0.008;
-
-    const localBand = bandDepth * (0.65 + edgeFalloff * 0.35);
-
-    positions.push(
-      x,
-      terraceY,
-      zCenter - localBand / 2,
-
-      x,
-      terraceY - 0.008,
-      zCenter + localBand / 2
-    );
+    const color = new THREE.Color();
+    color.setHSL(0.25 + u * 0.05, 0.45, 0.55);
+    colors.push(color.r, color.g, color.b);
+    colors.push(color.r, color.g, color.b);
 
     if (i < segments) {
       const a = i * 2;
-      const b = a + 1;
-      const c = a + 2;
-      const d = a + 3;
-
-      indices.push(a, c, b, b, c, d);
+      indices.push(a, a + 2, a + 1);
+      indices.push(a + 1, a + 2, a + 3);
     }
   }
 
   const geometry = new THREE.BufferGeometry();
-
   geometry.setAttribute(
     "position",
     new THREE.Float32BufferAttribute(positions, 3)
   );
-
+  geometry.setAttribute(
+    "color",
+    new THREE.Float32BufferAttribute(colors, 3)
+  );
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
 
@@ -540,57 +589,46 @@ function createTerraceGeometry(hill, level, levels) {
 }
 
 function createRetainingWallGeometry(hill, level, levels) {
-  const segments = 72;
-  const widthX = hill.width * (0.98 - level * 0.035);
-  const bandDepth = 0.075 + (level % 3) * 0.008;
+  if (!hill || !hill.width || !hill.height || !hill.depth || levels <= 0) {
+    return new THREE.BufferGeometry();
+  }
+
+  const segments = 48;
+  const t = level / levels;
+
+  const width = hill.width * (1 - t * 0.28);
+  const depth = hill.depth / levels * 1.5;
+  const yTop = 0.10 + level * hill.height / levels;
+  const yBottom = yTop - Math.max(0.035, hill.height / levels * 0.9);
+  const zCenter = hill.z - level * hill.depth * 0.72 / levels;
 
   const positions = [];
   const indices = [];
 
   for (let i = 0; i <= segments; i++) {
     const u = i / segments;
-    const x = mix(-widthX, widthX, u);
-    const normalizedX = x / widthX;
+    const x = (u - 0.5) * width;
+    const contour =
+      Math.sin(u * Math.PI) * 0.075 +
+      Math.sin(u * Math.PI * 2) * 0.018;
 
-    const edgeFalloff = Math.sqrt(
-      Math.max(0, 1 - normalizedX * normalizedX)
-    );
+    const z = zCenter + depth * 0.5 + contour;
 
-    const zCenter =
-      hill.z +
-      0.10 * normalizedX * normalizedX +
-      Math.sin(normalizedX * 3.2 + hill.seed) * 0.035 +
-      (level / levels) * hill.depth * 0.92;
-
-    const y =
-      0.035 +
-      level * 0.039 +
-      edgeFalloff * 0.018 +
-      Math.sin(normalizedX * 4 + hill.seed) * 0.008;
-
-    const z = zCenter + bandDepth / 2;
-
-    // Top and bottom vertices of the front-facing retaining wall.
-    positions.push(x, y, z);
-    positions.push(x, y - 0.044, z + 0.004);
+    positions.push(x, yTop, z);
+    positions.push(x, yBottom, z + 0.008);
 
     if (i < segments) {
       const a = i * 2;
-
-      indices.push(
-        a, a + 1, a + 2,
-        a + 1, a + 3, a + 2
-      );
+      indices.push(a, a + 1, a + 2);
+      indices.push(a + 1, a + 3, a + 2);
     }
   }
 
   const geometry = new THREE.BufferGeometry();
-
   geometry.setAttribute(
     "position",
     new THREE.Float32BufferAttribute(positions, 3)
   );
-
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
 
@@ -598,9 +636,7 @@ function createRetainingWallGeometry(hill, level, levels) {
 }
 
 function TerraceBand({ hill, level, levels, C }) {
-  const waterRef = useRef();
-
-  const topGeometry = useMemo(
+  const paddyGeometry = useMemo(
     () => createTerraceGeometry(hill, level, levels),
     [hill, level, levels]
   );
@@ -610,90 +646,235 @@ function TerraceBand({ hill, level, levels, C }) {
     [hill, level, levels]
   );
 
-  const isWater = level % 4 === 1 || level % 4 === 2;
-
-  useFrame(({ clock }) => {
-    if (waterRef.current) {
-      waterRef.current.material.opacity =
-        0.42 + Math.sin(clock.elapsedTime * 1.5 + level) * 0.07;
-    }
-  });
+  if (!hill || !hill.width || !hill.height || !hill.depth || levels <= 0) {
+    return null;
+  }
 
   return (
     <group>
-      {/* Contoured paddy surface */}
+      {/* Flat cultivated paddy */}
       <mesh
-        geometry={topGeometry}
-        material={mat(
-          isWater ? C.water : level % 2 === 0 ? C.riceGreen : C.forestGreen,
-          isWater ? 0.22 : 0.92,
-          isWater ? { side: THREE.DoubleSide } : { side: THREE.DoubleSide }
-        )}
+        geometry={paddyGeometry}
         receiveShadow
         castShadow
-      />
+      >
+        <meshStandardMaterial
+          vertexColors
+          roughness={0.32}
+          metalness={0.04}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
 
-      {/* Water glints remain very subtle */}
-      {isWater && (
-        <mesh
-          ref={waterRef}
-          geometry={topGeometry}
-          position={[0, 0.006, -0.003]}
-        >
-          <meshBasicMaterial
-            color={C.waterLight}
-            transparent
-            opacity={0.42}
-            toneMapped={false}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-      )}
-
-      {/* Connected stone-and-earth retaining edge */}
+      {/* Exposed earth-and-stone retaining wall */}
       <mesh
         geometry={wallGeometry}
-        material={mat(
-          level % 3 === 0 ? C.stone : C.soilLight,
-          1,
-          { side: THREE.DoubleSide }
-        )}
-        castShadow
         receiveShadow
-      />
+        castShadow
+      >
+        <meshStandardMaterial
+          color={level % 2 === 0 ? C.soilLight : C.stone}
+          roughness={0.95}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
     </group>
   );
 }
 
+// ------------------------------------------------------------
+// Terrace detailing
+// ------------------------------------------------------------
+
+function TerraceStonework({ C }) {
+  const stones = useMemo(() => {
+    const random = rng(8241);
+    const items = [];
+
+    HILLS.forEach((hill, hillIndex) => {
+      for (let level = 0; level < hill.levels; level++) {
+        // Small, irregular stones follow selected retaining walls.
+        for (let i = 0; i < 28; i++) {
+          const u = (i + random() * 0.7) / 28;
+          const p = terracePoint(hill, level, u, hill.levels);
+
+          if (p.edge < 0.2 || random() > 0.76) continue;
+
+          items.push({
+            key: `${hillIndex}-${level}-${i}`,
+            pos: [
+              p.x,
+              p.y - 0.018,
+              p.z + 0.043,
+            ],
+            size: [
+              0.018 + random() * 0.018,
+              0.012 + random() * 0.009,
+              0.012 + random() * 0.01,
+            ],
+            color:
+              random() > 0.5
+                ? C.stone
+                : C.stoneLight,
+          });
+        }
+      }
+    });
+
+    return items;
+  }, [C]);
+
+  return (
+    <group>
+      {stones.map((stone) => (
+        <Box
+          key={stone.key}
+          pos={stone.pos}
+          size={stone.size}
+          color={stone.color}
+        />
+      ))}
+    </group>
+  );
+}
+
+function RicePlants({ C }) {
+  const plants = useMemo(() => {
+    const random = rng(1542);
+    const items = [];
+
+    HILLS.forEach((hill, hillIndex) => {
+      for (let level = 0; level < hill.levels; level++) {
+        for (let i = 0; i < 17; i++) {
+          if (random() > 0.62) continue;
+
+          const u = 0.12 + (i / 17) * 0.76;
+          const p = terracePoint(hill, level, u, hill.levels);
+
+          // Keep some open surfaces to read as water-filled paddies.
+          if (level % 4 === 1 || level % 4 === 2) continue;
+
+          items.push({
+            key: `${hillIndex}-${level}-${i}`,
+            pos: [
+              p.x + (random() - 0.5) * 0.04,
+              p.y + 0.006,
+              p.z + (random() - 0.5) * 0.045,
+            ],
+            height: 0.025 + random() * 0.045,
+            color:
+              random() > 0.5
+                ? C.riceGreen
+                : C.riceLight,
+          });
+        }
+      }
+    });
+
+    return items;
+  }, [C]);
+
+  return (
+    <group>
+      {plants.map((plant) => (
+        <group key={plant.key} position={plant.pos}>
+          <Cylinder
+            pos={[0, plant.height / 2, 0]}
+            top={0.002}
+            bottom={0.004}
+            height={plant.height}
+            segments={4}
+            color={plant.color}
+          />
+
+          <Cylinder
+            pos={[-0.006, plant.height * 0.66, 0]}
+            top={0.001}
+            bottom={0.0025}
+            height={plant.height * 0.65}
+            segments={4}
+            color={C.leafLight}
+            rot={[0, 0, -0.25]}
+          />
+
+          <Cylinder
+            pos={[0.006, plant.height * 0.58, 0.003]}
+            top={0.001}
+            bottom={0.0025}
+            height={plant.height * 0.58}
+            segments={4}
+            color={C.riceLight}
+            rot={[0, 0, 0.3]}
+          />
+        </group>
+      ))}
+    </group>
+  );
+}
+
+// ------------------------------------------------------------
+// Main central rice-terrace landscape
+// ------------------------------------------------------------
+
 function RiceTerraces({ C }) {
   return (
     <group>
-      {HILLS.map((hill, hillIndex) => {
-        const levels = hillIndex === 1 ? 7 : 8;
+      {/* The central hill is the largest and tallest focal point */}
+      {HILLS.map((hill, hillIndex) => (
+        <group key={`hill-${hillIndex}`}>
+          {Array.from({ length: hill.levels }, (_, level) => (
+            <TerraceBand
+              key={`${hillIndex}-${level}`}
+              hill={hill}
+              level={level}
+              levels={hill.levels}
+              C={C}
+            />
+          ))}
+        </group>
+      ))}
+
+      <TerraceStonework C={C} />
+      <RicePlants C={C} />
+
+      {/* A narrow irrigation channel winding down the terraces */}
+      {Array.from({ length: 8 }, (_, i) => {
+        const t = i / 7;
+        const x = -0.23 + Math.sin(t * Math.PI * 1.4) * 0.17;
+        const z = -0.7 + t * 1.05;
+        const y = terrainHeight(x, z) + 0.045;
 
         return (
-          <group key={`hill-${hillIndex}`}>
-            {Array.from({ length: levels }, (_, level) => (
-              <TerraceBand
-                key={`${hillIndex}-${level}`}
-                hill={hill}
-                level={level}
-                levels={levels}
-                C={C}
-              />
-            ))}
+          <group key={`irrigation-${i}`}>
+            <Box
+              pos={[x, y, z]}
+              size={[0.045, 0.009, 0.105]}
+              color={C.water}
+              rot={[0, Math.sin(t * 4) * 0.16, 0]}
+            />
+
+            <Box
+              pos={[x - 0.027, y + 0.008, z]}
+              size={[0.009, 0.018, 0.11]}
+              color={C.stone}
+            />
           </group>
         );
       })}
 
-      {/* A few small field dividers connecting the terrace contours */}
-      {[-0.58, -0.2, 0.18, 0.5].map((x, i) => (
+      {/* Small crossing paths connecting levels */}
+      {[
+        [-0.56, 0.3, -0.14],
+        [-0.39, 0.27, 0.04],
+        [0.37, 0.25, -0.05],
+        [0.55, 0.22, 0.12],
+      ].map((pos, i) => (
         <Box
-          key={`divider-${i}`}
-          pos={[x, 0.11 + (i % 2) * 0.03, -0.18 + i * 0.015]}
-          size={[0.018, 0.026, 0.28]}
+          key={`terrace-path-${i}`}
+          pos={pos}
+          size={[0.15, 0.018, 0.055]}
           color={C.soilLight}
-          rot={[0, Math.sin(i) * 0.12, 0]}
+          rot={[0, i % 2 === 0 ? -0.2 : 0.2, 0]}
         />
       ))}
     </group>
@@ -701,13 +882,13 @@ function RiceTerraces({ C }) {
 }
 
 // ------------------------------------------------------------
-// Ifugao huts
+// Ifugao-inspired raised granaries and huts
 // ------------------------------------------------------------
 
 function IfugaoHut({ C, position, scale = 1 }) {
   return (
     <group position={position} scale={scale}>
-      {/* Four wooden support posts */}
+      {/* Four raised wooden supports */}
       {[
         [-0.07, -0.06],
         [0.07, -0.06],
@@ -715,35 +896,32 @@ function IfugaoHut({ C, position, scale = 1 }) {
         [0.07, 0.06],
       ].map(([x, z], i) => (
         <Box
-          key={`post-${i}`}
+          key={`hut-post-${i}`}
           pos={[x, 0.105, z]}
           size={[0.014, 0.21, 0.014]}
           color={C.wood}
         />
       ))}
 
-      {/* Raised timber floor */}
       <Box
         pos={[0, 0.215, 0]}
         size={[0.21, 0.025, 0.19]}
         color={C.woodLight}
       />
 
-      {/* Compact enclosed living space */}
       <Box
         pos={[0, 0.29, 0]}
         size={[0.17, 0.13, 0.15]}
         color={C.wood}
       />
 
-      {/* Front door */}
       <Box
         pos={[0, 0.275, 0.077]}
         size={[0.035, 0.08, 0.008]}
         color={C.soilDark}
       />
 
-      {/* Traditional steep roof silhouette */}
+      {/* Steep roof silhouette */}
       <Cylinder
         pos={[0, 0.395, 0]}
         top={0}
@@ -754,7 +932,6 @@ function IfugaoHut({ C, position, scale = 1 }) {
         rot={[0, Math.PI / 4, 0]}
       />
 
-      {/* Roof edge */}
       <Cylinder
         pos={[0, 0.315, 0]}
         top={0.155}
@@ -771,29 +948,30 @@ function IfugaoHut({ C, position, scale = 1 }) {
 function Village({ C }) {
   return (
     <group>
+      {/* Kept to the side and rear so the terraces remain dominant */}
       <IfugaoHut
         C={C}
-        position={[-0.57, 0.16, -0.15]}
-        scale={0.75}
+        position={[-0.91, 0.12, -0.48]}
+        scale={0.52}
       />
 
       <IfugaoHut
         C={C}
-        position={[0.54, 0.12, -0.27]}
-        scale={0.63}
+        position={[0.91, 0.1, -0.47]}
+        scale={0.48}
       />
 
       <IfugaoHut
         C={C}
-        position={[0.14, 0.055, 0.23]}
-        scale={0.55}
+        position={[0.78, 0.04, 0.54]}
+        scale={0.4}
       />
     </group>
   );
 }
 
 // ------------------------------------------------------------
-// Forest vegetation
+// Forest and border vegetation
 // ------------------------------------------------------------
 
 function Tree({ C, position, scale = 1, seed = 1 }) {
@@ -845,22 +1023,29 @@ function Forest({ C }) {
     const random = rng(4567);
     const items = [];
 
-    for (let i = 0; i < 64; i++) {
+    for (let i = 0; i < 54; i++) {
       const side = i % 2 === 0 ? -1 : 1;
-
-      const x = side * (0.72 + random() * 0.47);
-      const z = -0.7 + random() * 1.55;
-
-      // Leave space for the center terraces and the three QR corners.
-      if (Math.abs(x) < 0.76 && z < 0.35 && z > -0.55) {
-        continue;
-      }
+      const x = side * (0.98 + random() * 0.36);
+      const z = -0.95 + random() * 1.9;
 
       items.push({
         x,
         z,
-        scale: 0.42 + random() * 0.62,
+        scale: 0.42 + random() * 0.58,
         seed: i * 19 + 31,
+      });
+    }
+
+    // Back ridge trees frame the terraces like a forested valley.
+    for (let i = 0; i < 15; i++) {
+      const x = -1.16 + i * 0.165;
+      const z = -1.12 + Math.sin(i * 0.7) * 0.05;
+
+      items.push({
+        x,
+        z,
+        scale: 0.42 + random() * 0.4,
+        seed: i * 31 + 100,
       });
     }
 
@@ -875,7 +1060,7 @@ function Forest({ C }) {
           C={C}
           position={[
             tree.x,
-            terrainHeight(tree.x, tree.z) - 0.01,
+            terrainHeight(tree.x, tree.z) - 0.005,
             tree.z,
           ]}
           scale={tree.scale}
@@ -887,7 +1072,169 @@ function Forest({ C }) {
 }
 
 // ------------------------------------------------------------
-// Finder-corner landmarks
+// Terraced-field border accents
+// ------------------------------------------------------------
+
+function BorderDetails({ C }) {
+  const random = useMemo(() => rng(6124), []);
+
+  const stones = useMemo(() => {
+    const items = [];
+
+    for (let i = 0; i < 34; i++) {
+      const side = i % 4;
+      const t = -1.16 + random() * 2.32;
+
+      let x;
+      let z;
+
+      if (side === 0) {
+        x = t;
+        z = -1.25;
+      } else if (side === 1) {
+        x = t;
+        z = 1.25;
+      } else if (side === 2) {
+        x = -1.25;
+        z = t;
+      } else {
+        x = 1.25;
+        z = t;
+      }
+
+      items.push({
+        pos: [x, 0.01, z],
+        size: [
+          0.06 + random() * 0.06,
+          0.025 + random() * 0.02,
+          0.05 + random() * 0.045,
+        ],
+        color: random() > 0.5 ? C.stone : C.stoneDark,
+      });
+    }
+
+    return items;
+  }, [C, random]);
+
+  return (
+    <group>
+      {/* Mossy stones framing the miniature landscape */}
+      {stones.map((stone, i) => (
+        <group key={`border-stone-${i}`}>
+          <Box
+            pos={stone.pos}
+            size={stone.size}
+            color={stone.color}
+          />
+
+          {i % 3 === 0 && (
+            <Orb
+              pos={[
+                stone.pos[0],
+                stone.pos[1] + 0.025,
+                stone.pos[2],
+              ]}
+              radius={0.035}
+              scale={[1.2, 0.35, 0.9]}
+              color={C.mossGreen}
+            />
+          )}
+        </group>
+      ))}
+
+      {/* Small rice bundles and cultivated plants along the edges */}
+      {Array.from({ length: 22 }, (_, i) => {
+        const side = i % 4;
+        const t = -1.15 + (i / 22) * 2.3;
+
+        let x;
+        let z;
+
+        if (side === 0) {
+          x = t;
+          z = -1.2;
+        } else if (side === 1) {
+          x = t;
+          z = 1.2;
+        } else if (side === 2) {
+          x = -1.2;
+          z = t;
+        } else {
+          x = 1.2;
+          z = t;
+        }
+
+        return (
+          <group key={`border-rice-${i}`} position={[x, 0.02, z]}>
+            <Cylinder
+              pos={[0, 0.045, 0]}
+              top={0.002}
+              bottom={0.006}
+              height={0.09}
+              segments={4}
+              color={C.riceGreen}
+            />
+
+            <Orb
+              pos={[-0.018, 0.075, 0]}
+              radius={0.025}
+              scale={[1.3, 0.35, 0.55]}
+              color={C.riceLight}
+            />
+
+            <Orb
+              pos={[0.018, 0.06, 0.008]}
+              radius={0.024}
+              scale={[1.3, 0.35, 0.55]}
+              color={C.leafLight}
+            />
+          </group>
+        );
+      })}
+
+      {/* Golden field markers */}
+      {Array.from({ length: 12 }, (_, i) => {
+        const x = -0.93 + i * 0.169;
+
+        return (
+          <group key={`field-marker-${i}`}>
+            <Box
+              pos={[x, 0.009, -1.35]}
+              size={[0.028, 0.015, 0.045]}
+              color={i % 3 === 0 ? C.gold : C.soilLight}
+            />
+
+            <Box
+              pos={[x, 0.009, 1.35]}
+              size={[0.028, 0.015, 0.045]}
+              color={i % 3 === 0 ? C.gold : C.soilLight}
+            />
+          </group>
+        );
+      })}
+
+      {/* Warm fireflies around the valley border */}
+      {Array.from({ length: 18 }, (_, i) => {
+        const random = rng(i + 803);
+        const x = (random() - 0.5) * 2.45;
+        const y = 0.12 + random() * 0.55;
+        const z = (random() - 0.5) * 2.45;
+
+        return (
+          <GlowPx
+            key={`border-firefly-${i}`}
+            pos={[x, y, z]}
+            color={i % 3 === 0 ? C.goldLight : C.sun}
+            size={i % 4 === 0 ? 0.018 : 0.012}
+          />
+        );
+      })}
+    </group>
+  );
+}
+
+// ------------------------------------------------------------
+// Small QR-corner landmarks
 // ------------------------------------------------------------
 
 function FinderIfugaoShrine({ C }) {
@@ -895,7 +1242,7 @@ function FinderIfugaoShrine({ C }) {
   const z = (3 - (GRID - 1) / 2) * TILE;
 
   return (
-    <group position={[x, H_FINDER, z]}>
+    <group position={[x, 0.095, z]}>
       <Box pos={[0, 0.025, 0]} size={[0.24, 0.05, 0.22]} color={C.stone} />
       <Box pos={[0, 0.065, 0]} size={[0.17, 0.035, 0.16]} color={C.stoneLight} />
       <Box pos={[0, 0.09, 0]} size={[0.1, 0.025, 0.1]} color={C.wood} />
@@ -912,14 +1259,14 @@ function FinderWaterfallStream({ C }) {
   const waterRef = useRef();
 
   useFrame(({ clock }) => {
-    if (waterRef.current) {
-      waterRef.current.material.opacity =
-        0.45 + Math.sin(clock.elapsedTime * 2.1) * 0.12;
-    }
+    if (!waterRef.current) return;
+
+    waterRef.current.material.opacity =
+      0.45 + Math.sin(clock.elapsedTime * 2.1) * 0.12;
   });
 
   return (
-    <group position={[x, H_FINDER, z]}>
+    <group position={[x, 0.095, z]}>
       <Box pos={[0, 0.025, 0]} size={[0.23, 0.05, 0.21]} color={C.stone} />
       <Box pos={[0, 0.055, 0]} size={[0.15, 0.025, 0.14]} color={C.stoneLight} />
 
@@ -937,7 +1284,12 @@ function FinderWaterfallStream({ C }) {
         />
       </mesh>
 
-      <Box pos={[0, 0.115, 0.045]} size={[0.035, 0.075, 0.025]} color={C.water} />
+      <Box
+        pos={[0, 0.115, 0.045]}
+        size={[0.035, 0.075, 0.025]}
+        color={C.water}
+      />
+
       <GlowPx pos={[0, 0.17, 0.045]} color={C.waterLight} size={0.02} />
     </group>
   );
@@ -948,7 +1300,7 @@ function FinderRiceGranary({ C }) {
   const z = (GRID - 4 - (GRID - 1) / 2) * TILE;
 
   return (
-    <group position={[x, H_FINDER, z]}>
+    <group position={[x, 0.095, z]}>
       <Box pos={[0, 0.02, 0]} size={[0.2, 0.04, 0.19]} color={C.stone} />
 
       {[
@@ -984,7 +1336,7 @@ function FinderRiceGranary({ C }) {
 }
 
 // ------------------------------------------------------------
-// QR ground plane
+// QR ground
 // ------------------------------------------------------------
 
 function QRGround({ matrix, C }) {
@@ -997,17 +1349,17 @@ function QRGround({ matrix, C }) {
         const timing = (z === 6 || x === 6) && !finder;
         const dark = matrix[z][x];
 
-        let height = H_BASE;
+        let height = 0.022;
         let color = C.base;
 
         if (finder) {
-          height = H_FINDER;
+          height = 0.095;
           color = dark ? C.modDark : C.modLight;
         } else if (timing) {
-          height = dark ? 0.055 : H_BASE;
+          height = dark ? 0.055 : 0.022;
           color = dark ? C.modDarkAlt : C.base;
         } else if (dark) {
-          height = H_DARK;
+          height = 0.072;
           color = (x + z) % 4 === 0 ? C.modDarkAlt : C.modDark;
         }
 
@@ -1028,7 +1380,6 @@ function QRGround({ matrix, C }) {
 
   return (
     <group>
-      {/* Continuous dark soil backing */}
       <Box
         pos={[0, -0.07, 0]}
         size={[GRID * TILE + 0.14, 0.13, GRID * TILE + 0.14]}
@@ -1047,11 +1398,10 @@ function QRGround({ matrix, C }) {
           ]}
           color={module.color}
           castShadow={module.dark}
-          receiveShadow
         />
       ))}
 
-      {/* Earthen QR border */}
+      {/* Earthen perimeter */}
       {[
         [0, -0.13, -HALF - 0.045, [GRID * TILE + 0.12, 0.08, 0.08]],
         [0, -0.13, HALF + 0.045, [GRID * TILE + 0.12, 0.08, 0.08]],
@@ -1070,7 +1420,7 @@ function QRGround({ matrix, C }) {
 }
 
 // ------------------------------------------------------------
-// Rice plants and natural details on dark QR modules
+// Decorative QR modules
 // ------------------------------------------------------------
 
 function DarkModuleDecor({ matrix, C }) {
@@ -1086,15 +1436,15 @@ function DarkModuleDecor({ matrix, C }) {
         const cx = Math.abs(x - (GRID - 1) / 2);
         const cz = Math.abs(z - (GRID - 1) / 2);
 
-        // Keep the center visually open for the landscape.
-        if (cx < 5 && cz < 5) continue;
-        if (random() > 0.22) continue;
+        // Protect the central mountain silhouette.
+        if (cx < 6 && cz < 6) continue;
+        if (random() > 0.19) continue;
 
         output.push({
           key: `${x}-${z}`,
           x: (x - (GRID - 1) / 2) * TILE,
           z: (z - (GRID - 1) / 2) * TILE,
-          height: 0.045 + random() * 0.035,
+          height: 0.035 + random() * 0.025,
           type: Math.floor(random() * 3),
         });
       }
@@ -1106,7 +1456,7 @@ function DarkModuleDecor({ matrix, C }) {
   return (
     <group>
       {items.map((item) => (
-        <group key={item.key} position={[item.x, H_DARK, item.z]}>
+        <group key={item.key} position={[item.x, 0.072, item.z]}>
           {item.type === 0 ? (
             <>
               <Box
@@ -1114,6 +1464,7 @@ function DarkModuleDecor({ matrix, C }) {
                 size={[0.006, item.height, 0.006]}
                 color={C.forestGreen}
               />
+
               <Cylinder
                 pos={[0, item.height, 0]}
                 top={0}
@@ -1136,6 +1487,7 @@ function DarkModuleDecor({ matrix, C }) {
                 size={[0.006, 0.05, 0.006]}
                 color={C.forestGreen}
               />
+
               <GlowPx
                 pos={[0, 0.055, 0]}
                 color={C.goldLight}
@@ -1150,7 +1502,7 @@ function DarkModuleDecor({ matrix, C }) {
 }
 
 // ------------------------------------------------------------
-// Mist drifting between mountain ridges
+// Animated mist
 // ------------------------------------------------------------
 
 function MistClouds({ C }) {
@@ -1160,12 +1512,12 @@ function MistClouds({ C }) {
     const random = rng(6666);
 
     return Array.from({ length: 12 }, () => ({
-      x: (random() - 0.5) * 2.2,
-      y: 0.45 + random() * 0.48,
+      x: (random() - 0.5) * 2.25,
+      y: 0.42 + random() * 0.42,
       z: -0.65 + (random() - 0.5) * 1.25,
       phase: random() * Math.PI * 2,
       speed: 0.12 + random() * 0.16,
-      size: 0.12 + random() * 0.13,
+      size: 0.1 + random() * 0.11,
     }));
   }, []);
 
@@ -1190,10 +1542,11 @@ function MistClouds({ C }) {
       {clouds.map((cloud, i) => (
         <mesh key={i} position={[cloud.x, cloud.y, cloud.z]}>
           <sphereGeometry args={[cloud.size, 10, 7]} />
+
           <meshBasicMaterial
             color={C.mist}
             transparent
-            opacity={0.13}
+            opacity={0.11}
             depthWrite={false}
             toneMapped={false}
           />
@@ -1214,8 +1567,8 @@ function Fireflies({ C }) {
     const random = rng(7777);
 
     return Array.from({ length: 22 }, () => ({
-      x: (random() - 0.5) * 2.1,
-      y: 0.22 + random() * 0.65,
+      x: (random() - 0.5) * 2.15,
+      y: 0.2 + random() * 0.65,
       z: -0.4 + (random() - 0.5) * 1.5,
       phase: random() * Math.PI * 2,
       speed: 0.25 + random() * 0.4,
@@ -1241,11 +1594,9 @@ function Fireflies({ C }) {
   return (
     <group ref={group}>
       {particles.map((particle, i) => (
-        <mesh
-          key={i}
-          position={[particle.x, particle.y, particle.z]}
-        >
+        <mesh key={i} position={[particle.x, particle.y, particle.z]}>
           <sphereGeometry args={[0.009, 5, 5]} />
+
           <meshBasicMaterial
             color={i % 3 === 0 ? C.goldLight : C.sun}
             toneMapped={false}
@@ -1266,13 +1617,17 @@ function SceneLighting({ C }) {
   useFrame(({ clock }) => {
     if (sunlight.current) {
       sunlight.current.intensity =
-        1.1 + Math.sin(clock.elapsedTime * 0.3) * 0.08;
+        1.15 + Math.sin(clock.elapsedTime * 0.3) * 0.08;
     }
   });
 
   return (
     <>
-      <ambientLight intensity={0.8} color="#E6EFD9" />
+      <ambientLight intensity={0.82} color="#E6EFD9" />
+
+      <hemisphereLight
+        args={["#DCEAD9", "#3C4938", 0.65]}
+      />
 
       <directionalLight
         position={[-3, 6, 4]}
@@ -1306,6 +1661,7 @@ function SceneLighting({ C }) {
 
 export default function BanaueRiceTerraces({ themeColors }) {
   const matrix = useMemo(() => buildMatrix(), []);
+
   const C = useMemo(
     () => resolveColors(themeColors),
     [themeColors]
@@ -1318,23 +1674,24 @@ export default function BanaueRiceTerraces({ themeColors }) {
     >
       <SceneLighting C={C} />
 
-      {/* QR ground and continuous mountain terrain */}
+      {/* QR-inspired base */}
       <QRGround matrix={matrix} C={C} />
-      <MountainTerrain C={C} />
 
-      {/* Curved rice paddies and connecting retaining walls */}
+      {/* Main focal point: broad, high, curved rice terraces */}
+      <MountainTerrain C={C} />
       <RiceTerraces C={C} />
 
-      {/* Ifugao village and forested slopes */}
+      {/* Field structure and landscape details */}
       <Village C={C} />
       <Forest C={C} />
+      <BorderDetails C={C} />
 
-      {/* Preserve all three QR finder landmarks */}
+      {/* QR corner landmarks */}
       <FinderIfugaoShrine C={C} />
       <FinderWaterfallStream C={C} />
       <FinderRiceGranary C={C} />
 
-      {/* Small natural details and atmosphere */}
+      {/* Animated atmosphere */}
       <DarkModuleDecor matrix={matrix} C={C} />
       <MistClouds C={C} />
       <Fireflies C={C} />

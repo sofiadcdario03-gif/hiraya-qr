@@ -4,7 +4,7 @@ import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 
 import DiwataScene        from "./DiwataScene";
-import CoralScene     from "./CoralScene";
+import MayonScene         from "./MayonScene";
 import BahayKuboScene     from "./BahayKuboScene";
 import BanaueRiceTerraces from "./BanaueRiceTerraces";
 import ParolScene         from "./ParolScene";
@@ -188,7 +188,7 @@ function TransitionRig({ view, qrTexture, onTransitionComplete, children }) {
 const sceneComponents = {
   balete:        BanaueRiceTerraces,
   diwata:        DiwataScene,
-  coral:     CoralScene,
+  coral:         MayonScene,
   bahayKubo:     BahayKuboScene,
   coralKingdom:  ParolScene,
   elnido:        ElNidoScene,

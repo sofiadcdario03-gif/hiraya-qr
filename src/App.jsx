@@ -16,10 +16,9 @@ export default function App() {
   const [view, setView]                       = useState('world');
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [currentUrl, setCurrentUrl]           = useState('');
-  const [selectedTheme, setSelectedTheme]     = useState('diwata');
+  const [selectedTheme, setSelectedTheme]     = useState('balete');
   const [notification, setNotification]       = useState(null);
-  const [showMenu, setShowMenu]               = useState(false);
-  const [urlDraft, setUrlDraft]               = useState('');
+  const [urlDraft, setUrlDraft]               = useState('https://hiraya-qr.vercel.app');
 
   const { qrDataUrl, qrTexture, isLoading, error, generateQR } = useQRCode();
 
@@ -54,22 +53,27 @@ export default function App() {
     setNotification({ message: msg, isSuccess: ok });
     setTimeout(() => setNotification(null), 3000);
   };
-  const handleCopy     = async () => { const r = await copyToClipboard(currentUrl); toast(r.message, r.success); setShowMenu(false); };
-  const handleDownload = async () => { const r = await downloadQR(qrDataUrl);       toast(r.message, r.success); setShowMenu(false); };
+  const handleCopy     = async () => { const r = await copyToClipboard(currentUrl); toast(r.message, r.success); };
+  const handleDownload = async () => { const r = await downloadQR(qrDataUrl);       toast(r.message, r.success); };
   const handleShare    = async () => {
     const r = await shareContent(currentUrl);
     if (!r.success && r.message === 'Sharing not supported') await handleCopy();
-    else { toast(r.message, r.success); setShowMenu(false); }
+    else { toast(r.message, r.success); }
   };
-
-  useEffect(() => {
-    const fn = (e) => { if (e.key === 'Escape') setShowMenu(false); };
-    window.addEventListener('keydown', fn);
-    return () => window.removeEventListener('keydown', fn);
-  }, []);
 
   const theme = themes[selectedTheme];
   const hint  = VIEW_HINT[view];
+
+  // Auto-generate on initial load
+  useEffect(() => {
+    if (urlDraft && !currentUrl && !qrDataUrl) {
+      const init = async () => {
+        setCurrentUrl(urlDraft);
+        await generateQR(urlDraft, themes[selectedTheme].colors);
+      };
+      init();
+    }
+  }, []);
 
   return (
     <div className="app">
@@ -93,23 +97,109 @@ export default function App() {
         >
           {theme.name}
         </span>
-
-        <button
-          className="icon-btn"
-          onClick={() => setShowMenu(v => !v)}
-          disabled={!qrDataUrl}
-          aria-label="Options"
-          title={qrDataUrl ? 'Options' : 'Generate a QR first'}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="5"  r="1.2" fill="currentColor" />
-            <circle cx="12" cy="12" r="1.2" fill="currentColor" />
-            <circle cx="12" cy="19" r="1.2" fill="currentColor" />
-          </svg>
-        </button>
       </header>
 
-      {/* ── scene (primary area) ────────────────────────────────── */}
+      {/* ── left sidebar: controls ──────────────────────────────── */}
+      <aside className="sidebar">
+        {/* Theme selection */}
+        <div className="sidebar-section">
+          <label className="sidebar-label">World Theme</label>
+          <div className="theme-strip" role="group" aria-label="Choose world theme">
+            {[
+              themes.balete,
+              themes.elnido,
+              themes.bahayKubo,
+              themes.diwata,
+              themes.coralKingdom,
+              themes.coral,
+            ].map((t) => {
+              // Custom pill background colors
+              const pillBg = {
+                'balete': '#2d5a27',        // Banaue - green
+                'elnido': '#05c5ff',       // El Nido - bright crystal blue
+                'bahayKubo': '#854d0e',   // Bahay Kubo - brown
+                'diwata': '#0d6b5e',      // Balete of Siquijor - teal
+                'coralKingdom': '#8c24fb', // Christmas Parol - yellow
+                'coral': '#12dfab',       // Mount Mayon - blue-green
+              }[t.id] || t.colors.primary;
+
+              return (
+                <button
+                  key={t.id}
+                  className={`theme-pill ${selectedTheme === t.id ? 'active' : ''}`}
+                  onClick={() => handleThemeChange(t.id)}
+                  aria-label={`Select ${t.name} theme`}
+                  aria-pressed={selectedTheme === t.id}
+                  style={{ '--dot-bg': pillBg, '--dot-acc': t.colors.accent }}
+                >
+                  {t.name}
+                </button>
+              );
+            })}
+          </div>
+          <div className="theme-description">
+            {theme.description}
+          </div>
+        </div>
+
+        {/* URL input */}
+        <div className="sidebar-section">
+          <label className="sidebar-label">Your Link</label>
+          <form onSubmit={handleSubmit}>
+            <input
+              type="url"
+              className="url-field"
+              placeholder="Paste a link to begin…"
+              value={urlDraft}
+              onChange={(e) => setUrlDraft(e.target.value)}
+              disabled={isLoading}
+              aria-label="URL"
+            />
+            <button
+              type="submit"
+              className="send-btn"
+              disabled={isLoading || !urlDraft.trim()}
+              aria-label="Generate QR"
+              style={{ background: '#ffffff', color: '#0f172a', marginTop: '0.75rem' }}
+            >
+              {isLoading ? (
+                <span className="spinner-sm" />
+              ) : (
+                <>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                    <line x1="22" y1="2" x2="11" y2="13" />
+                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                  Generate World
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Action buttons */}
+        <div className="sidebar-section">
+          <label className="sidebar-label">Actions</label>
+          <div className="action-grid">
+            <button
+              className="action-btn"
+              onClick={handleDownload}
+              disabled={!qrDataUrl}
+            >
+              Download QR
+            </button>
+            <button
+              className="action-btn"
+              onClick={handleShare}
+              disabled={!qrDataUrl}
+            >
+              Share
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {/* ── right column: scene area ──────────────────────────────── */}
       <main className="scene-area">
         {isLoading ? (
           <div className="scene-loading">
@@ -144,70 +234,12 @@ export default function App() {
         ) : (
           <div className="scene-empty">
             <div className="scene-empty-glyph">🌿</div>
-            <p>Paste a link below to grow your world</p>
+            <p>Paste a link on the left to grow your world</p>
           </div>
         )}
 
         {error && <div className="error-bar" role="alert">{error}</div>}
       </main>
-
-      {/* ── bottom control panel ──────────────────────────────── */}
-      <div className="control-panel">
-        {/* theme colour dots */}
-        <div className="theme-strip" role="group" aria-label="Choose world theme">
-          {Object.values(themes).map((t) => (
-            <button
-              key={t.id}
-              className={`theme-dot ${selectedTheme === t.id ? 'active' : ''}`}
-              onClick={() => handleThemeChange(t.id)}
-              title={t.name}
-              aria-label={`Select ${t.name} theme`}
-              aria-pressed={selectedTheme === t.id}
-              style={{ '--dot-bg': t.colors.primary, '--dot-acc': t.colors.accent }}
-            />
-          ))}
-        </div>
-
-        {/* URL row */}
-        <form className="url-row" onSubmit={handleSubmit}>
-          <input
-            type="url"
-            className="url-field"
-            placeholder="Paste a link to begin…"
-            value={urlDraft}
-            onChange={(e) => setUrlDraft(e.target.value)}
-            disabled={isLoading}
-            aria-label="URL"
-          />
-          <button
-            type="submit"
-            className="send-btn"
-            disabled={isLoading || !urlDraft.trim()}
-            aria-label="Generate QR"
-            style={{ background: theme.colors.accent, color: '#0f172a' }}
-          >
-            {isLoading ? (
-              <span className="spinner-sm" />
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-            )}
-          </button>
-        </form>
-      </div>
-
-      {/* ── options menu ──────────────────────────────────────── */}
-      {showMenu && (
-        <div className="overlay" onClick={() => setShowMenu(false)}>
-          <div className="menu" onClick={(e) => e.stopPropagation()}>
-            <button className="menu-item" onClick={handleCopy}>Copy Link</button>
-            <button className="menu-item" onClick={handleDownload}>Download QR</button>
-            <button className="menu-item" onClick={handleShare}>Share</button>
-          </div>
-        </div>
-      )}
 
       {/* ── toast ─────────────────────────────────────────────── */}
       {notification && (

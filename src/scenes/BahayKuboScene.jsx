@@ -63,11 +63,12 @@ function resolveColors(theme = {}) {
   const light = theme.light || "#eee4c9";
 
   return {
-    ground: "#c9b58b",
+    ground: "#6B7D55", // muddy green for ground
     earth: "#785238",
     soil: "#553923",
-    path: "#b58b60",
-    pathLight: "#d5b38a",
+    path: "#8A7B5A", // muddy green for paths
+    pathLight: "#9A8B6A", // lighter muddy green
+    light: "#7A8B5E", // muddy green for light modules
 
     bamboo,
     bambooLight: blendHex(bamboo, "#e3c999", 0.55),
@@ -122,6 +123,30 @@ function Box({
       receiveShadow={receiveShadow}
     >
       <boxGeometry args={[1, 1, 1]} />
+    </mesh>
+  );
+}
+
+function Cone({
+  pos = [0, 0, 0],
+  rTop = 0,
+  rBot = 0.5,
+  h = 1,
+  segs = 8,
+  color = "#ffffff",
+  rot = [0, 0, 0],
+  castShadow = true,
+  receiveShadow = true,
+}) {
+  return (
+    <mesh
+      position={pos}
+      rotation={rot}
+      material={mat(color)}
+      castShadow={castShadow}
+      receiveShadow={receiveShadow}
+    >
+      <cylinderGeometry args={[rTop, rBot, h, segs]} />
     </mesh>
   );
 }
@@ -246,13 +271,24 @@ function QRGround({ matrix, C }) {
               : (x + z) % 4 === 0
                 ? C.earth
                 : C.bamboo
-            : C.light,
+            : C.ground, // use ground (muddy green) instead of light
         });
       }
     }
 
     return result;
   }, [matrix, C]);
+
+  const grassAccents = useMemo(() => {
+    const r = rng(5555);
+    const grass = [];
+    for (let i = 0; i < 40; i++) {
+      const x = (r() - 0.5) * GRID * TILE * 0.85;
+      const z = (r() - 0.5) * GRID * TILE * 0.85;
+      grass.push({ x, z, height: 0.02 + r() * 0.03 });
+    }
+    return grass;
+  }, []);
 
   return (
     <group>
@@ -280,6 +316,28 @@ function QRGround({ matrix, C }) {
           ]}
           color={m.color}
           castShadow={false}
+        />
+      ))}
+
+      {/* Pond at front corner */}
+      <group position={[HALF - 0.2, 0.02, HALF - 0.2]}>
+        <Box pos={[0, -0.02, 0]} size={[0.35, 0.04, 0.35]} color={C.earth} />
+        <mesh position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[0.15, 24]} />
+          <meshStandardMaterial color={C.water} roughness={0.15} metalness={0.1} />
+        </mesh>
+      </group>
+
+      {/* Small grass accents scattered around */}
+      {grassAccents.map((g, i) => (
+        <Cone
+          key={`grass-${i}`}
+          pos={[g.x, g.height / 2, g.z]}
+          rTop={0}
+          rBot={0.006}
+          h={g.height}
+          segs={4}
+          color={C.green}
         />
       ))}
 
@@ -784,287 +842,708 @@ function BahayKubo({
 // paddies. Walkways meet house stairs and join one another.
 // ============================================================
 
+
 function ConnectedVillage({ C }) {
-  const villageRef = useRef();
+  const waterRef = useRef();
 
-  const plants = useMemo(() => {
-    const random = rng(2025);
-    const result = [];
+  const borderPlants = useMemo(() => {
+    const random = rng(4321);
+    return Array.from({ length: 32 }, (_, i) => {
+      const side = i % 4;
+      const along = -1.12 + random() * 2.24;
 
-    for (let i = 0; i < 36; i++) {
-      const side = random() > 0.5 ? 1 : -1;
-      const x = side * (0.72 + random() * 0.22);
-      const z = -0.95 + random() * 1.9;
+      let x = along;
+      let z = 0;
 
-      // Leave the main connecting path clear.
-      if (Math.abs(x) < 0.75 && Math.abs(z) < 0.8) continue;
+      if (side === 0) z = -1.12;
+      if (side === 1) z = 1.12;
+      if (side === 2) {
+        x = -1.12;
+        z = along;
+      }
+      if (side === 3) {
+        x = 1.12;
+        z = along;
+      }
 
-      result.push({
+      return {
         x,
         z,
-        scale: 0.7 + random() * 0.7,
-        type: Math.floor(random() * 3),
+        type: Math.floor(random() * 4),
+        scale: 0.65 + random() * 0.55,
         rotation: random() * Math.PI * 2,
-      });
-    }
-
-    return result;
+      };
+    });
   }, []);
 
+  useFrame(({ clock }) => {
+    if (waterRef.current) {
+      waterRef.current.position.y =
+        0.045 + Math.sin(clock.elapsedTime * 1.2) * 0.003;
+    }
+  });
+
   return (
-    <group ref={villageRef} position={[0, H_DARK, 0]}>
-      {/* Central packed-earth lane links the entire settlement. */}
-      <Box
-        pos={[0, 0.012, 0.0]}
-        size={[0.19, 0.025, 2.25]}
-        color={C.path}
-      />
+    <group position={[0, H_DARK, 0]}>
 
-      {/* Worn edges soften the straight path. */}
+      {/* =====================================================
+          CENTRAL FOCAL POINT: ONE GRAND BAHAY KUBO
+          Front entrance faces +Z.
+      ===================================================== */}
+
+      {/* Raised landscaped foundation */}
       <Box
-        pos={[-0.105, 0.008, 0]}
-        size={[0.035, 0.018, 2.15]}
-        color={C.pathLight}
-        castShadow={false}
-      />
-      <Box
-        pos={[0.105, 0.008, 0]}
-        size={[0.035, 0.018, 2.15]}
+        pos={[0, 0.045, -0.015]}
+        size={[1.65, 0.09, 1.72]}
         color={C.earth}
-        castShadow={false}
       />
 
-      {/* Branches connect the main lane to the front stairs. */}
-      {[
-        [-0.48, -0.45, 0.7],
-        [0.48, 0.48, 0.7],
-        [-0.48, 0.45, -0.68],
-      ].map(([x, z, length], i) => (
-        <Box
-          key={`branch-${i}`}
-          pos={[x / 2, 0.015, z]}
-          size={[Math.abs(x) + 0.12, 0.03, 0.13]}
-          rot={[0, 0, 0]}
-          color={C.path}
-        />
-      ))}
+      <Box
+        pos={[0, 0.095, -0.015]}
+        size={[1.56, 0.035, 1.63]}
+        color={C.stone}
+      />
 
-      {/* Small stepping stones are embedded in the earth. */}
-      {Array.from({ length: 8 }, (_, i) => (
-        <Box
-          key={`stone-${i}`}
-          pos={[
-            i % 2 ? 0.045 : -0.045,
-            0.033,
-            -0.85 + i * 0.23,
-          ]}
-          size={[0.075, 0.018, 0.09]}
-          color={i % 2 ? C.stone : C.stoneLight}
-          castShadow={false}
-        />
-      ))}
-
-      {/* Three distinct houses face the shared lane. */}
+      {/* Main house: enlarged in width, height and length */}
       <BahayKubo
         C={C}
-        position={[-0.49, 0, 0.57]}
-        scale={0.72}
-        rotation={-0.12}
+        position={[0, 0.09, -0.10]}
+        scale={1.55}
+        rotation={0}
         variant={0}
       />
 
-      <BahayKubo
-        C={C}
-        position={[0.49, 0, -0.43]}
-        scale={0.68}
-        rotation={Math.PI + 0.12}
-        variant={1}
+      {/* Extra roof ridge ornament */}
+      <Beam
+        start={[-0.78, 1.66, -0.10]}
+        end={[0.78, 1.66, -0.10]}
+        radius={0.025}
+        color={C.wood}
       />
 
-      <BahayKubo
-        C={C}
-        position={[-0.47, 0, -0.78]}
-        scale={0.52}
-        rotation={-0.08}
-        variant={0}
-      />
-
-      {/* Shared bamboo fence segments define yards, not isolated squares. */}
-      {[-1, 1].map((side) => (
-        <group key={`fence-${side}`}>
-          {[-0.94, -0.69, -0.44, -0.19, 0.06, 0.31, 0.56, 0.81, 1.06].map(
-            (z, i) => (
-              <Box
-                key={`post-${i}`}
-                pos={[side * 0.99, 0.13, z]}
-                size={[0.035, 0.26, 0.035]}
-                color={C.bamboo}
-              />
-            )
-          )}
-
+      {/* Decorative ridge-end caps */}
+      {[-0.78, 0.78].map((x, i) => (
+        <group key={`ridge-cap-${i}`} position={[x, 1.65, -0.10]}>
+          <mesh material={mat(C.gold)} castShadow>
+            <sphereGeometry args={[0.045, 8, 6]} />
+          </mesh>
           <Box
-            pos={[side * 0.99, 0.19, 0.06]}
-            size={[0.03, 0.025, 2.0]}
+            pos={[0, -0.055, 0]}
+            size={[0.045, 0.10, 0.045]}
             color={C.wood}
-          />
-          <Box
-            pos={[side * 0.99, 0.095, 0.06]}
-            size={[0.025, 0.025, 2.0]}
-            color={C.bambooDark}
           />
         </group>
       ))}
 
-      {/* Rice paddies are broad, shallow plots instead of tiny cubes. */}
-      {[
-        [-0.98, 0.0, 0.48, 0.72],
-        [0.99, 0.62, 0.42, 0.55],
-      ].map(([x, z, width, depth], i) => (
-        <group key={`paddy-${i}`} position={[x, 0, z]}>
+      {/* Carved-looking front veranda trim */}
+      <Box
+        pos={[0, 0.80, 0.78]}
+        size={[1.12, 0.035, 0.045]}
+        color={C.woodHighlight}
+      />
+
+      {Array.from({ length: 11 }, (_, i) => (
+        <Box
+          key={`veranda-carving-${i}`}
+          pos={[-0.50 + i * 0.10, 0.825, 0.805]}
+          size={[0.025, 0.025, 0.018]}
+          color={i % 2 ? C.gold : C.wood}
+        />
+      ))}
+
+      {/* Bamboo details along the front wall */}
+      {Array.from({ length: 13 }, (_, i) => (
+        <Box
+          key={`front-bamboo-${i}`}
+          pos={[-0.47 + i * 0.078, 0.91, 0.405]}
+          size={[0.014, 0.48, 0.018]}
+          color={i % 2 ? C.bambooLight : C.bambooDark}
+          castShadow={false}
+        />
+      ))}
+
+      {/* Crosshatched sawali texture */}
+      {Array.from({ length: 8 }, (_, i) => (
+        <Box
+          key={`woven-wall-${i}`}
+          pos={[0, 0.73 + i * 0.052, 0.416]}
+          size={[0.93, 0.012, 0.018]}
+          color={i % 2 ? C.bamboo : C.bambooLight}
+          castShadow={false}
+        />
+      ))}
+
+      {/* Ornamental bamboo corner posts */}
+      {[-0.49, 0.49].map((x, i) => (
+        <group key={`front-corner-${i}`}>
           <Box
-            pos={[0, 0.012, 0]}
-            size={[width, 0.035, depth]}
-            color={C.rice}
+            pos={[x, 0.94, 0.43]}
+            size={[0.055, 0.57, 0.055]}
+            color={C.bambooDark}
           />
+          {[0.72, 0.90, 1.08, 1.18].map((y, j) => (
+            <Box
+              key={j}
+              pos={[x, y, 0.462]}
+              size={[0.066, 0.018, 0.014]}
+              color={C.gold}
+            />
+          ))}
+        </group>
+      ))}
+
+      {/* Larger porch stairs and landing */}
+      <Box
+        pos={[0, 0.43, 0.94]}
+        size={[0.76, 0.09, 0.34]}
+        color={C.woodLight}
+      />
+      <Box
+        pos={[0, 0.32, 1.08]}
+        size={[0.66, 0.08, 0.28]}
+        color={C.wood}
+      />
+      <Box
+        pos={[0, 0.21, 1.21]}
+        size={[0.56, 0.08, 0.25]}
+        color={C.woodLight}
+      />
+      <Box
+        pos={[0, 0.12, 1.31]}
+        size={[0.48, 0.06, 0.18]}
+        color={C.wood}
+      />
+
+      {/* Stone path leading to the house */}
+      {Array.from({ length: 6 }, (_, i) => (
+        <group
+          key={`entrance-stone-${i}`}
+          position={[
+            (i % 2 ? 0.045 : -0.045),
+            0.055,
+            1.43 + i * 0.105,
+          ]}
+        >
           <Box
-            pos={[0, 0.032, depth * 0.42]}
-            size={[width * 0.92, 0.012, 0.035]}
-            color={C.water}
+            pos={[0, 0, 0]}
+            size={[0.23, 0.035, 0.105]}
+            color={i % 2 ? C.stoneLight : C.stone}
+            rot={[0, (i % 2 ? 1 : -1) * 0.06, 0]}
+          />
+        </group>
+      ))}
+
+      {/* Decorative carved posts flanking the front stairs */}
+      {[-0.48, 0.48].map((x, i) => (
+        <group key={`stair-post-${i}`} position={[x, 0.23, 1.02]}>
+          <Box
+            pos={[0, 0.10, 0]}
+            size={[0.045, 0.22, 0.045]}
+            color={C.wood}
+          />
+          <mesh
+            position={[0, 0.23, 0]}
+            material={mat(C.gold)}
+            castShadow
+          >
+            <sphereGeometry args={[0.055, 8, 6]} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* Hanging capiz-inspired lanterns on the veranda */}
+      {[-0.39, 0, 0.39].map((x, i) => (
+        <group key={`capiz-lantern-${i}`} position={[x, 1.18, 0.55]}>
+          <Beam
+            start={[0, 0.08, 0]}
+            end={[0, -0.015, 0]}
+            radius={0.006}
+            color={C.wood}
+          />
+
+          <Box
+            pos={[0, -0.07, 0]}
+            size={[0.075, 0.095, 0.075]}
+            color={C.lantern}
+            materialProps={{
+              emissive: C.lantern,
+              emissiveIntensity: 0.55,
+            }}
+          />
+
+          <Box
+            pos={[0, -0.07, 0.042]}
+            size={[0.045, 0.065, 0.012]}
+            color={C.light}
+            materialProps={{
+              emissive: C.light,
+              emissiveIntensity: 0.25,
+            }}
             castShadow={false}
           />
+
+          <mesh
+            position={[0, -0.14, 0]}
+            material={mat(C.gold)}
+          >
+            <coneGeometry args={[0.045, 0.045, 4]} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* =====================================================
+          SMALL KOI POND
+      ===================================================== */}
+
+      <group position={[-0.87, 0.025, 0.72]} rotation={[-0.035, 0, 0]}>
+
+        {/* Earth bed */}
+        <mesh position={[0, 0, 0]} material={mat(C.earth)}>
+          <cylinderGeometry args={[0.34, 0.31, 0.075, 24]} />
+        </mesh>
+
+        {/* Natural stone rim */}
+        <mesh position={[0, 0.043, 0]} material={mat(C.stone)}>
+          <cylinderGeometry args={[0.315, 0.30, 0.045, 24]} />
+        </mesh>
+
+        {/* Pond water */}
+        <mesh
+          ref={waterRef}
+          position={[0, 0.045, 0]}
+          material={mat(C.water, 0.22, {
+            metalness: 0.18,
+            transparent: true,
+            opacity: 0.92,
+          })}
+        >
+          <cylinderGeometry args={[0.278, 0.278, 0.012, 32]} />
+        </mesh>
+
+        {/* Water highlights */}
+        {[
+          [-0.08, 0.055, 0.04],
+          [0.07, 0.055, -0.065],
+          [0.12, 0.055, 0.09],
+          [-0.13, 0.055, -0.08],
+        ].map((p, i) => (
           <Box
-            pos={[0, 0.032, -depth * 0.42]}
-            size={[width * 0.92, 0.012, 0.035]}
+            key={`pond-glint-${i}`}
+            pos={p}
+            size={[0.065, 0.004, 0.009]}
             color={C.waterLight}
             castShadow={false}
           />
+        ))}
+
+        {/* Lily pads */}
+        {[
+          [-0.12, 0.055, 0.09],
+          [0.13, 0.055, -0.08],
+          [0.03, 0.055, 0.14],
+        ].map((p, i) => (
+          <group key={`lily-${i}`} position={p}>
+            <mesh
+              rotation={[-Math.PI / 2, 0, i * 0.7]}
+              material={mat(i % 2 ? C.green : C.greenLight)}
+            >
+              <circleGeometry args={[0.065, 10]} />
+            </mesh>
+            <Box
+              pos={[0.018, 0.003, 0]}
+              size={[0.003, 0.003, 0.055]}
+              color={C.greenDark}
+              castShadow={false}
+            />
+          </group>
+        ))}
+
+        {/* Small water lily flowers */}
+        {[
+          [-0.12, 0.062, 0.09],
+          [0.13, 0.062, -0.08],
+        ].map((p, i) => (
+          <group key={`water-lily-flower-${i}`} position={p}>
+            {Array.from({ length: 5 }, (_, j) => {
+              const angle = (j / 5) * Math.PI * 2;
+              return (
+                <mesh
+                  key={j}
+                  position={[
+                    Math.cos(angle) * 0.018,
+                    0.004,
+                    Math.sin(angle) * 0.018,
+                  ]}
+                  rotation={[0.25, angle, 0]}
+                  material={mat(i ? C.light : C.gold)}
+                >
+                  <sphereGeometry args={[0.013, 6, 5]} />
+                </mesh>
+              );
+            })}
+            <mesh
+              position={[0, 0.01, 0]}
+              material={mat(C.gold)}
+            >
+              <sphereGeometry args={[0.009, 6, 5]} />
+            </mesh>
+          </group>
+        ))}
+
+        {/* Rounded stones around the pond edge */}
+        {Array.from({ length: 13 }, (_, i) => {
+          const angle = (i / 13) * Math.PI * 2;
+          const radius = 0.32;
+
+          return (
+            <mesh
+              key={`pond-stone-${i}`}
+              position={[
+                Math.cos(angle) * radius,
+                0.05,
+                Math.sin(angle) * radius,
+              ]}
+              scale={[1.25, 0.65, 0.9]}
+              material={mat(i % 2 ? C.stoneLight : C.stone)}
+              castShadow
+            >
+              <dodecahedronGeometry args={[0.045, 0]} />
+            </mesh>
+          );
+        })}
+      </group>
+
+      {/* Small bamboo water scoop beside the pond */}
+      <group position={[-1.13, 0.09, 0.72]} rotation={[0, 0, -0.18]}>
+        <Beam
+          start={[0, 0, 0]}
+          end={[0.17, 0.20, 0]}
+          radius={0.012}
+          color={C.bamboo}
+        />
+        <mesh
+          position={[-0.015, 0.025, 0]}
+          material={mat(C.woodLight)}
+          castShadow
+        >
+          <cylinderGeometry args={[0.055, 0.045, 0.06, 8]} />
+        </mesh>
+      </group>
+
+      {/* =====================================================
+          FILIPINO COUNTRYSIDE DETAILS AROUND THE BORDER
+      ===================================================== */}
+
+      {/* Bamboo fence around the back and side edges */}
+      {[-1, 1].map((side) => (
+        <group key={`border-fence-${side}`}>
+          {Array.from({ length: 9 }, (_, i) => {
+            const z = -1.10 + i * 0.275;
+            return (
+              <group key={`fence-post-${i}`} position={[side * 1.10, 0.12, z]}>
+                <Box
+                  pos={[0, 0.10, 0]}
+                  size={[0.035, 0.24, 0.035]}
+                  color={C.bamboo}
+                />
+                <Box
+                  pos={[0, 0.205, 0]}
+                  size={[0.045, 0.025, 0.045]}
+                  color={C.bambooLight}
+                />
+              </group>
+            );
+          })}
+
+          {[0.10, 0.20].map((y, i) => (
+            <Box
+              key={`fence-rail-${i}`}
+              pos={[side * 1.10, y, 0]}
+              size={[0.025, 0.025, 2.22]}
+              color={i ? C.wood : C.bambooDark}
+            />
+          ))}
         </group>
       ))}
 
-      {/* Rice clumps follow the edges of the paddies. */}
-      {Array.from({ length: 28 }, (_, i) => {
-        const side = i % 2 ? -1 : 1;
-        const z = -0.9 + (i % 14) * 0.13;
-        const x = side * (0.79 + (i % 3) * 0.045);
-
-        return (
-          <group key={`rice-${i}`} position={[x, 0.05, z]}>
-            <Beam
-              start={[0, 0, 0]}
-              end={[0.015 * side, 0.11, 0.01]}
-              radius={0.005}
-              color={C.greenDark}
-            />
-            <Beam
-              start={[0, 0.045, 0]}
-              end={[-0.035, 0.085, 0.012]}
-              radius={0.004}
-              color={C.green}
-            />
-            <Beam
-              start={[0, 0.065, 0]}
-              end={[0.03, 0.105, -0.01]}
-              radius={0.004}
-              color={C.greenLight}
-            />
-          </group>
-        );
-      })}
-
-      {/* A connected irrigation channel follows the edge of the lane. */}
-      <group position={[0.76, 0.035, 0.04]}>
+      {/* Rear bamboo fence */}
+      {Array.from({ length: 9 }, (_, i) => (
         <Box
-          pos={[0, 0, 0]}
-          size={[0.105, 0.06, 1.8]}
-          color={C.stone}
+          key={`back-fence-${i}`}
+          pos={[-1.10 + i * 0.275, 0.14, -1.10]}
+          size={[0.03, 0.28, 0.03]}
+          color={C.bamboo}
         />
-        <Box
-          pos={[0, 0.022, 0]}
-          size={[0.07, 0.015, 1.73]}
-          color={C.water}
-          castShadow={false}
-        />
-      </group>
+      ))}
 
-      {/* Tropical planting clusters have varied silhouettes and spacing. */}
-      {plants.map((plant, i) => (
+      <Box
+        pos={[0, 0.22, -1.10]}
+        size={[2.22, 0.025, 0.025]}
+        color={C.wood}
+      />
+      <Box
+        pos={[0, 0.12, -1.10]}
+        size={[2.22, 0.025, 0.025]}
+        color={C.bambooDark}
+      />
+
+      {/* Small rice plots along the outer edges */}
+      {[
+        { x: 0.91, z: -0.73, w: 0.32, d: 0.45 },
+        { x: 0.91, z: 0.00, w: 0.30, d: 0.38 },
+        { x: 0.35, z: -1.03, w: 0.46, d: 0.18 },
+        { x: -0.42, z: -1.03, w: 0.40, d: 0.18 },
+      ].map((paddy, i) => (
         <group
-          key={`plant-${i}`}
+          key={`border-paddy-${i}`}
+          position={[paddy.x, 0.018, paddy.z]}
+        >
+          <Box
+            pos={[0, 0, 0]}
+            size={[paddy.w, 0.035, paddy.d]}
+            color={C.rice}
+          />
+
+          <Box
+            pos={[0, 0.02, 0]}
+            size={[paddy.w * 0.84, 0.008, paddy.d * 0.70]}
+            color={C.water}
+            castShadow={false}
+          />
+
+          {Array.from({ length: 5 }, (_, j) => (
+            <group
+              key={j}
+              position={[
+                -paddy.w * 0.35 + j * paddy.w * 0.17,
+                0.04,
+                (j % 2 ? -1 : 1) * paddy.d * 0.15,
+              ]}
+            >
+              <Beam
+                start={[0, 0, 0]}
+                end={[0.015, 0.095, 0]}
+                radius={0.004}
+                color={C.greenDark}
+              />
+              <Beam
+                start={[0, 0.025, 0]}
+                end={[-0.03, 0.075, 0.01]}
+                radius={0.004}
+                color={C.green}
+              />
+              <Beam
+                start={[0, 0.04, 0]}
+                end={[0.035, 0.09, -0.01]}
+                radius={0.004}
+                color={C.greenLight}
+              />
+            </group>
+          ))}
+        </group>
+      ))}
+
+      {/* Border plants: banana plants, coconut palms, shrubs and pots */}
+      {borderPlants.map((plant, i) => (
+        <group
+          key={`border-plant-${i}`}
           position={[plant.x, 0.025, plant.z]}
           rotation={[0, plant.rotation, 0]}
           scale={plant.scale}
         >
           {plant.type === 0 ? (
             <>
+              {/* Banana plant trunk */}
               <mesh
-                position={[0, 0.16, 0]}
+                position={[0, 0.20, 0]}
                 material={mat(C.greenDark)}
                 castShadow
               >
-                <cylinderGeometry args={[0.035, 0.045, 0.32, 7]} />
+                <cylinderGeometry args={[0.035, 0.05, 0.40, 7]} />
               </mesh>
 
-              {[0, 1, 2, 3, 4].map((leaf) => (
-                <mesh
-                  key={leaf}
-                  position={[
-                    Math.cos((leaf / 5) * Math.PI * 2) * 0.1,
-                    0.32 + (leaf % 2) * 0.035,
-                    Math.sin((leaf / 5) * Math.PI * 2) * 0.1,
-                  ]}
-                  rotation={[
-                    0.35,
-                    (leaf / 5) * Math.PI * 2,
-                    leaf % 2 ? -0.38 : 0.38,
-                  ]}
-                  material={mat(leaf % 2 ? C.green : C.greenLight)}
-                  castShadow
-                >
-                  <coneGeometry args={[0.055, 0.25, 5]} />
-                </mesh>
-              ))}
+              {/* Broad banana leaves */}
+              {Array.from({ length: 5 }, (_, j) => {
+                const angle = (j / 5) * Math.PI * 2;
+                return (
+                  <mesh
+                    key={j}
+                    position={[
+                      Math.cos(angle) * 0.105,
+                      0.36 + (j % 2) * 0.035,
+                      Math.sin(angle) * 0.105,
+                    ]}
+                    rotation={[
+                      Math.cos(angle) * 0.45,
+                      -angle,
+                      Math.sin(angle) * 0.45,
+                    ]}
+                    material={mat(j % 2 ? C.green : C.greenLight)}
+                    castShadow
+                  >
+                    <boxGeometry args={[0.055, 0.24, 0.012]} />
+                  </mesh>
+                );
+              })}
             </>
           ) : plant.type === 1 ? (
             <>
-              <mesh
-                position={[0, 0.2, 0]}
-                material={mat(C.bamboo)}
-                castShadow
-              >
-                <cylinderGeometry args={[0.018, 0.025, 0.4, 6]} />
-              </mesh>
-              {[0, 1, 2, 3].map((leaf) => (
-                <Beam
-                  key={leaf}
-                  start={[0, 0.25 + leaf * 0.025, 0]}
-                  end={[
-                    Math.cos(leaf * 1.6) * 0.15,
-                    0.34 + (leaf % 2) * 0.04,
-                    Math.sin(leaf * 1.6) * 0.15,
-                  ]}
-                  radius={0.009}
-                  color={C.green}
+              {/* Coconut palm trunk */}
+              <Beam
+                start={[0, 0, 0]}
+                end={[0.035, 0.42, 0]}
+                radius={0.025}
+                color={C.woodLight}
+              />
+
+              {[0.12, 0.22, 0.32].map((y, j) => (
+                <Box
+                  key={j}
+                  pos={[0.01, y, 0]}
+                  size={[0.055, 0.018, 0.055]}
+                  color={C.wood}
                 />
+              ))}
+
+              {/* Palm fronds */}
+              {Array.from({ length: 7 }, (_, j) => {
+                const angle = (j / 7) * Math.PI * 2;
+                return (
+                  <group key={j} rotation={[0, angle, 0]}>
+                    <Beam
+                      start={[0, 0.40, 0]}
+                      end={[0.18, 0.49, 0]}
+                      radius={0.006}
+                      color={C.greenDark}
+                    />
+                    {[-1, 0, 1].map((leaf) => (
+                      <mesh
+                        key={leaf}
+                        position={[0.10, 0.47 + leaf * 0.018, leaf * 0.025]}
+                        rotation={[0, 0, -0.45]}
+                        material={mat(C.green)}
+                      >
+                        <coneGeometry args={[0.025, 0.16, 4]} />
+                      </mesh>
+                    ))}
+                  </group>
+                );
+              })}
+            </>
+          ) : plant.type === 2 ? (
+            <>
+              {/* Low flowering tropical shrub */}
+              {[0, 1, 2, 3, 4].map((j) => (
+                <mesh
+                  key={j}
+                  position={[
+                    Math.cos(j * 1.25) * 0.065,
+                    0.07 + (j % 2) * 0.035,
+                    Math.sin(j * 1.25) * 0.065,
+                  ]}
+                  material={mat(j % 2 ? C.green : C.greenLight)}
+                  castShadow
+                >
+                  <sphereGeometry args={[0.065, 7, 6]} />
+                </mesh>
               ))}
             </>
           ) : (
             <>
+              {/* Terracotta garden pot */}
               <mesh
                 position={[0, 0.055, 0]}
                 material={mat(C.terracotta)}
                 castShadow
               >
-                <sphereGeometry args={[0.07, 9, 7]} />
+                <cylinderGeometry args={[0.045, 0.06, 0.10, 9]} />
               </mesh>
+
               <mesh
-                position={[0, 0.12, 0]}
-                material={mat(C.terracotta)}
+                position={[0, 0.11, 0]}
+                material={mat(C.green)}
               >
-                <cylinderGeometry args={[0.035, 0.045, 0.02, 9]} />
+                <sphereGeometry args={[0.045, 7, 6]} />
               </mesh>
             </>
           )}
+        </group>
+      ))}
+
+      {/* Traditional hanging lanterns along the rear fence */}
+      {[-0.78, 0, 0.78].map((x, i) => (
+        <group key={`border-lantern-${i}`} position={[x, 0.36, -1.08]}>
+          <Beam
+            start={[0, 0.10, 0]}
+            end={[0, 0.02, 0]}
+            radius={0.005}
+            color={C.wood}
+          />
+          <Box
+            pos={[0, -0.035, 0]}
+            size={[0.065, 0.075, 0.065]}
+            color={C.lantern}
+            materialProps={{
+              emissive: C.lantern,
+              emissiveIntensity: 0.65,
+            }}
+          />
+          <mesh
+            position={[0, -0.09, 0]}
+            material={mat(C.gold)}
+          >
+            <coneGeometry args={[0.04, 0.04, 4]} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* Small wooden banca beside the pond */}
+      <group position={[-1.05, 0.065, 0.36]} rotation={[0, -0.25, 0]}>
+        <Box
+          pos={[0, 0.015, 0]}
+          size={[0.12, 0.045, 0.36]}
+          color={C.woodLight}
+        />
+        <Box
+          pos={[-0.065, 0.035, 0]}
+          size={[0.018, 0.055, 0.36]}
+          color={C.wood}
+        />
+        <Box
+          pos={[0.065, 0.035, 0]}
+          size={[0.018, 0.055, 0.36]}
+          color={C.wood}
+        />
+        {[-0.10, 0, 0.10].map((z, i) => (
+          <Box
+            key={i}
+            pos={[0, 0.043, z]}
+            size={[0.105, 0.012, 0.012]}
+            color={C.woodHighlight}
+          />
+        ))}
+      </group>
+
+      {/* A few warm stepping lights around the garden */}
+      {[
+        [-0.64, 0.065, 0.30],
+        [0.68, 0.065, 0.30],
+        [-0.65, 0.065, -0.62],
+        [0.70, 0.065, -0.62],
+      ].map((p, i) => (
+        <group key={`garden-light-${i}`} position={p}>
+          <mesh material={mat(C.stone)} castShadow>
+            <cylinderGeometry args={[0.045, 0.05, 0.06, 8]} />
+          </mesh>
+          <mesh
+            position={[0, 0.035, 0]}
+            material={mat(C.lantern, 0.35, {
+              emissive: C.lantern,
+              emissiveIntensity: 0.65,
+            })}
+          >
+            <sphereGeometry args={[0.027, 8, 6]} />
+          </mesh>
         </group>
       ))}
     </group>

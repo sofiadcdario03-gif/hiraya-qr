@@ -14,8 +14,9 @@
  */
 export const themes = {
   balete: {
-    name: 'Enchanted Balete',
+    name: 'Banaue Rice Terraces',
     id: 'balete',
+    description: 'The breathtaking rice terraces of Banaue carve their way up the mountain slopes like a stairway to the heavens. Ancient irrigation systems feed the emerald fields that change with the seasons, surrounded by mist-covered peaks and traditional Ifugao village life in harmony with nature.',
     colors: {
       primary:    '#1a472a',
       secondary:  '#2d5a27',
@@ -27,8 +28,9 @@ export const themes = {
   },
 
   diwata: {
-    name: "Diwata's Garden",
+    name: "Enchanted Balete of Siquijor",
     id: 'diwata',
+    description: 'A mystical balete tree standing at the heart of an enchanted forest, its ancient trunk adorned with glowing fairy lights and cascading aerial roots. The surrounding garden blooms with whimsical flora, all bathed in a soft golden glow that illuminates the magical atmosphere of Siquijor.',
     colors: {
       primary:    '#0d6b5e',
       secondary:  '#5eead4',
@@ -40,21 +42,23 @@ export const themes = {
   },
 
   coral: {
-    name: 'Coral Kingdom',
+    name: 'Mount Mayon',
     id: 'coral',
+    description: 'The majestic near-perfect cone of Mount Mayon rises gracefully above the lush landscapes of Albay. Its forested slopes fade into a blanket of soft mist, while delicate clouds drift around its summit. Lush tropical greenery blankets the foothills, with layered mountain ridges fading into the misty blue distance in serene, timeless beauty.',
     colors: {
-      primary:    '#9b1c1c',
-      secondary:  '#fbbf24',
-      accent:     '#16a34a',
-      background: '#0f172a',
-      dark:       '#7f1d1d',   // deep crimson          – on gold tint → 6.8:1
-      light:      '#fffbeb',   // warm cream
+      primary:    '#2d5a27',   // forest green
+      secondary:  '#7c8b6f',   // sage
+      accent:     '#c9d1c9',   // mist
+      background: '#1e293b',
+      dark:       '#1a4d15',   // deep forest green   – on ivory → 7.1:1
+      light:      '#faf8f0',   // ivory
     },
   },
 
   bahayKubo: {
     name: 'Bahay Kubo Village',
     id: 'bahayKubo',
+    description: 'A traditional Filipino village comes to life with charming nipa huts nestled among verdant rice paddies. Golden fields stretch toward the horizon, surrounded by tropical vegetation swaying in the gentle breeze. Warm terracotta tones and bamboo textures capture the essence of rural Philippine countryside living.',
     colors: {
       primary:    '#854d0e',
       secondary:  '#d97706',
@@ -66,8 +70,9 @@ export const themes = {
   },
 
   coralKingdom: {
-    name: 'Philippine Coral Kingdom',
+    name: 'Christmas Parol',
     id: 'coralKingdom',
+    description: 'A grand Filipino star lantern radiates festive warmth with its intricate five-pointed design. Layers of gold, red, and orange create a stunning centerpiece, while decorative tassels and glowing bulbs cast a warm holiday glow. The parol embodies the spirit of Filipino Christmas celebrations.',
     colors: {
       primary:    '#0e5f76',
       secondary:  '#f472b6',
@@ -81,6 +86,7 @@ export const themes = {
   elnido: {
     name: 'El Nido Lagoon',
     id: 'elnido',
+    description: 'A hidden lagoon nestled within towering limestone cliffs, where turquoise waters reflect the golden sun. Tropical palms line the shore while flying birds soar above the pristine paradise. The hidden sanctuary reveals crystal-clear waters teeming with life, surrounded by the dramatic karst formations that make El Nido world-renowned.',
     colors: {
       primary:    '#6b4c2a',   // warm limestone brown
       secondary:  '#0891b2',   // turquoise lagoon
