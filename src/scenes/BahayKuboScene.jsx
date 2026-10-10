@@ -63,12 +63,12 @@ function resolveColors(theme = {}) {
   const light = theme.light || "#eee4c9";
 
   return {
-    ground: "#6B7D55", // muddy green for ground
+    ground: "#6B5D4A", // brown for ground
     earth: "#785238",
     soil: "#553923",
-    path: "#8A7B5A", // muddy green for paths
-    pathLight: "#9A8B6A", // lighter muddy green
-    light: "#7A8B5E", // muddy green for light modules
+    path: "#8A735A", // brown for paths
+    pathLight: "#9A8B5A", // lighter brown
+    light: "#7A6B4E", // brown for light modules
 
     bamboo,
     bambooLight: blendHex(bamboo, "#e3c999", 0.55),

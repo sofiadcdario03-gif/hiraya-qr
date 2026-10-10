@@ -1,69 +1,54 @@
-import { useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
-import * as THREE from "three";
 
-// ============================================================
-// BanaueRiceTerraces.jsx
-// A grand, layered Banaue / Ifugao rice-terrace landscape.
-// Preserves the QR-inspired ground and themeColors API.
-// ============================================================
+import { useMemo, useRef } from "react";
+import * as THREE from "three";
+import { useFrame } from "@react-three/fiber";
+
+/* =========================================================
+   BANAUE RICE TERRACES
+   React Three Fiber / Three.js
+   - Three interconnected terraced hills
+   - Concentric crop shelves and retaining walls
+   - Stylized foliage and rice plants
+   - QR-code-inspired floor with 3D tiles
+   - Compatible with view, qrTexture, isTransitioning props
+========================================================= */
 
 const GRID = 25;
 const TILE = 0.118;
 const HALF = (GRID * TILE) / 2;
 const ROOT_Y = -0.45;
+const H_BASE = 0.022;
+const H_DARK = 0.072;
+const H_FINDER = 0.095;
 
-const materialCache = new Map();
+const COLORS = {
+  floor: "#F0EBDD",
+  floorLine: "#D5D0C3",
+  crop: "#A2D037",
+  cropLight: "#B7DF4D",
+  cropDark: "#8DC63F",
+  wall: "#1E5128",
+  wallLight: "#326D32",
+  base: "#4CAF50",
+  baseDark: "#347C3B",
+  bush: "#133E18",
+  bushLight: "#245B25",
+  bushMid: "#1B4B20",
+  water: "#8FCB9B",
+  waterHighlight: "#D0EAC0",
+  soil: "#795438",
+  path: "#C9AF80",
+};
 
-function mat(color, roughness = 0.85, extra = {}) {
-  const key = `${color}|${roughness}|${JSON.stringify(extra)}`;
-
-  if (!materialCache.has(key)) {
-    materialCache.set(
-      key,
-      new THREE.MeshStandardMaterial({
-        color,
-        roughness,
-        ...extra,
-      })
-    );
-  }
-
-  return materialCache.get(key);
-}
+/* -------------------- QR MATRIX HELPERS -------------------- */
 
 function rng(seed) {
   let value = seed >>> 0;
-
   return () => {
     value = (value * 1664525 + 1013904223) >>> 0;
     return value / 4294967296;
   };
 }
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function mix(a, b, t) {
-  return a + (b - a) * t;
-}
-
-function blendHex(a, b, factor) {
-  return `#${new THREE.Color(a).lerp(new THREE.Color(b), factor).getHexString()}`;
-}
-
-function darken(color, factor) {
-  return blendHex(color, "#000000", factor);
-}
-
-function lighten(color, factor) {
-  return blendHex(color, "#ffffff", factor);
-}
-
-// ------------------------------------------------------------
-// QR matrix
-// ------------------------------------------------------------
 
 function inFinder(x, z, ox, oz) {
   return x >= ox && x < ox + 7 && z >= oz && z < oz + 7;
@@ -73,10 +58,8 @@ function finderBit(x, z, ox, oz) {
   const dx = x - ox;
   const dz = z - oz;
   const edge = Math.min(dx, dz, 6 - dx, 6 - dz);
-
   if (edge === 0) return true;
   if (edge === 1) return false;
-
   return true;
 }
 
@@ -124,1328 +107,717 @@ function buildMatrix() {
   return matrix;
 }
 
-// ------------------------------------------------------------
-// Theme colors
-// ------------------------------------------------------------
 
-function resolveColors(theme = {}) {
-  const green = theme.primary || "#397746";
-  const emerald = theme.secondary || "#628D55";
-  const gold = theme.accent || "#D8B45A";
-  const light = theme.light || "#E4E8D5";
+/* -------------------- GEOMETRY HELPERS -------------------- */
 
-  return {
-    modDark: green,
-    modDarkAlt: darken(green, 0.22),
-    modLight: light,
-    base: lighten(light, 0.035),
+function createShelfGeometry(
+  radiusX,
+  radiusZ,
+  innerRatio,
+  segments = 96,
+  wave = 0.025
+) {
+  const positions = [];
+  const indices = [];
+  const uvs = [];
 
-    soil: "#62452F",
-    soilLight: "#8A6445",
-    soilDark: "#453526",
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
 
-    stone: "#756F61",
-    stoneLight: "#A69D87",
-    stoneDark: "#4E4C43",
+    const organic =
+      1 +
+      Math.sin(angle * 3 + 0.4) * wave +
+      Math.sin(angle * 5 - 0.7) * wave * 0.45;
 
-    gold,
-    goldLight: lighten(gold, 0.28),
-    sun: lighten(gold, 0.34),
+    const outerX = Math.cos(angle) * radiusX * organic;
+    const outerZ = Math.sin(angle) * radiusZ * organic;
 
-    riceGreen: emerald,
-    riceLight: lighten(emerald, 0.2),
-    forestGreen: darken(green, 0.27),
-    mossGreen: "#526541",
-    leafLight: "#91A96A",
+    const innerX =
+      Math.cos(angle) * radiusX * innerRatio * organic;
+    const innerZ =
+      Math.sin(angle) * radiusZ * innerRatio * organic;
 
-    water: "#75B9C0",
-    waterLight: "#B6DCDD",
-    waterDark: "#4C8F98",
+    positions.push(outerX, 0, outerZ);
+    positions.push(innerX, 0, innerZ);
 
-    mountain: "#4F7052",
-    mountainLight: "#73916A",
-    mountainDark: "#334C3A",
-    distantMountain: "#8BA38B",
+    uvs.push(i / segments, 1);
+    uvs.push(i / segments, 0);
+  }
 
-    wood: "#765039",
-    woodLight: "#A47B50",
-    thatch: "#927648",
-    mist: "#F1F3E9",
-  };
+  for (let i = 0; i < segments; i++) {
+    const a = i * 2;
+    const b = a + 1;
+    const c = a + 2;
+    const d = a + 3;
+
+    indices.push(a, b, c);
+    indices.push(b, d, c);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(positions, 3)
+  );
+  geometry.setAttribute(
+    "uv",
+    new THREE.Float32BufferAttribute(uvs, 2)
+  );
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  return geometry;
 }
 
-// ------------------------------------------------------------
-// Basic geometry
-// ------------------------------------------------------------
+function createRetainingWallGeometry(
+  radiusX,
+  radiusZ,
+  nextRadiusRatio,
+  lowerY,
+  upperY,
+  segments = 96,
+  wave = 0.025
+) {
+  const positions = [];
+  const indices = [];
+
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+
+    const organic =
+      1 +
+      Math.sin(angle * 3 + 0.4) * wave +
+      Math.sin(angle * 5 - 0.7) * wave * 0.45;
+
+    const x = Math.cos(angle) * radiusX * organic;
+    const z = Math.sin(angle) * radiusZ * organic;
+
+    const topX = x * nextRadiusRatio;
+    const topZ = z * nextRadiusRatio;
+
+    positions.push(x, lowerY, z);
+    positions.push(topX, upperY, topZ);
+  }
+
+  for (let i = 0; i < segments; i++) {
+    const a = i * 2;
+    const b = a + 1;
+    const c = a + 2;
+    const d = a + 3;
+
+    indices.push(a, c, b);
+    indices.push(b, c, d);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(positions, 3)
+  );
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  return geometry;
+}
+
+function createTopCapGeometry(
+  radiusX,
+  radiusZ,
+  segments = 96,
+  wave = 0.025
+) {
+  const positions = [0, 0, 0];
+  const indices = [];
+
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+
+    const organic =
+      1 +
+      Math.sin(angle * 3 + 0.4) * wave +
+      Math.sin(angle * 5 - 0.7) * wave * 0.45;
+
+    positions.push(
+      Math.cos(angle) * radiusX * organic,
+      0,
+      Math.sin(angle) * radiusZ * organic
+    );
+  }
+
+  for (let i = 1; i <= segments; i++) {
+    indices.push(0, i, i + 1);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(positions, 3)
+  );
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  return geometry;
+}
+
+/* -------------------- TERRACE HILL -------------------- */
+
+function TerraceHill({
+  x,
+  z,
+  radiusX,
+  radiusZ,
+  levels,
+  stepHeight,
+  baseY = 0.35,
+  rotation = 0,
+  water = true,
+  seed = 1,
+}) {
+  const hillRef = useRef();
+
+  const hillData = useMemo(() => {
+    const shelves = [];
+    const walls = [];
+    const waterShelves = [];
+
+    const reduction = 0.105;
+    const wave = 0.024;
+
+    for (let level = 0; level < levels; level++) {
+      const outerRatio = 1 - level * reduction;
+      const innerRatio = 1 - (level + 1) * reduction;
+
+      const upperY = baseY + (level + 1) * stepHeight;
+      const lowerY = baseY + level * stepHeight;
+
+      const shelf = createShelfGeometry(
+        radiusX * outerRatio,
+        radiusZ * outerRatio,
+        innerRatio / outerRatio,
+        96,
+        wave
+      );
+
+      shelves.push({
+        geometry: shelf,
+        y: upperY,
+        level,
+      });
+
+      const wall = createRetainingWallGeometry(
+        radiusX * outerRatio,
+        radiusZ * outerRatio,
+        innerRatio / outerRatio,
+        lowerY,
+        upperY,
+        96,
+        wave
+      );
+
+      walls.push({
+        geometry: wall,
+        level,
+      });
+
+      if (water && level % 2 === 0) {
+        const waterGeometry = createShelfGeometry(
+          radiusX * outerRatio * 0.99,
+          radiusZ * outerRatio * 0.99,
+          (innerRatio + 0.025) / outerRatio,
+          96,
+          wave
+        );
+
+        waterShelves.push({
+          geometry: waterGeometry,
+          y: upperY + 0.009,
+          level,
+        });
+      }
+    }
+
+    const topRatio = 1 - levels * reduction;
+
+    const topCap = createTopCapGeometry(
+      radiusX * topRatio,
+      radiusZ * topRatio,
+      96,
+      wave
+    );
+
+    return {
+      shelves,
+      walls,
+      waterShelves,
+      topCap,
+      topY: baseY + levels * stepHeight,
+    };
+  }, [
+    radiusX,
+    radiusZ,
+    levels,
+    stepHeight,
+    baseY,
+    water,
+  ]);
+
+  const shrubPositions = useMemo(() => {
+    const points = [];
+    const random = rng(seed * 9301 + 49297);
+
+    for (let level = 1; level <= levels; level++) {
+      const ratio = 1 - level * 0.105;
+      const y = baseY + level * stepHeight + 0.055;
+      const count = Math.max(3, Math.round(ratio * 13));
+
+      for (let i = 0; i < count; i++) {
+        const angle =
+          (i / count) * Math.PI * 2 + random() * 0.25;
+
+        const radius = 1 + (random() - 0.5) * 0.07;
+
+        const px =
+          Math.cos(angle) * radiusX * ratio * radius;
+        const pz =
+          Math.sin(angle) * radiusZ * ratio * radius;
+
+        // Avoid excessive foliage in the inner half of shelves.
+        if (random() > 0.5) {
+          points.push({
+            x: px,
+            y,
+            z: pz,
+            scale: 0.055 + random() * 0.07,
+            shade: Math.floor(random() * 3),
+          });
+        }
+      }
+    }
+
+    // Bushes clustered near the summit.
+    for (let i = 0; i < 9; i++) {
+      points.push({
+        x: (random() - 0.5) * radiusX * 0.24,
+        y: hillDataTopY(
+          baseY,
+          levels,
+          stepHeight
+        ) + 0.1,
+        z: (random() - 0.5) * radiusZ * 0.24,
+        scale: 0.07 + random() * 0.075,
+        shade: Math.floor(random() * 3),
+      });
+    }
+
+    return points;
+  }, [
+    radiusX,
+    radiusZ,
+    levels,
+    stepHeight,
+    baseY,
+    seed,
+  ]);
+
+  const plantPositions = useMemo(() => {
+    const points = [];
+    let state = seed * 127 + 503;
+
+    const random = () => {
+      state = (state * 16807) % 2147483647;
+      return state / 2147483647;
+    };
+
+    for (let level = 0; level < levels; level++) {
+      // Leave space for walls, paths, and bushes.
+      if (level % 2 === 1) continue;
+
+      const outerRatio = 1 - level * 0.105;
+      const innerRatio = 1 - (level + 1) * 0.105;
+      const y = baseY + (level + 1) * stepHeight + 0.025;
+
+      for (let i = 0; i < 17; i++) {
+        const angle = random() * Math.PI * 2;
+        const ratio =
+          innerRatio +
+          (outerRatio - innerRatio) * (0.25 + random() * 0.5);
+
+        points.push({
+          x: Math.cos(angle) * radiusX * ratio,
+          y,
+          z: Math.sin(angle) * radiusZ * ratio,
+          scale: 0.04 + random() * 0.035,
+          angle,
+        });
+      }
+    }
+
+    return points;
+  }, [
+    radiusX,
+    radiusZ,
+    levels,
+    stepHeight,
+    baseY,
+    seed,
+  ]);
+
+  const wallColors = [
+    COLORS.wall,
+    COLORS.wallLight,
+    COLORS.baseDark,
+  ];
+
+  return (
+    <group
+      ref={hillRef}
+      position={[x, 0, z]}
+      rotation={[0, rotation, 0]}
+    >
+      {/* Retaining walls and green terrace shelves */}
+      {hillData.walls.map((item, index) => (
+        <mesh
+          key={`wall-${index}`}
+          geometry={item.geometry}
+          castShadow
+          receiveShadow
+        >
+          <meshStandardMaterial
+            color={wallColors[index % wallColors.length]}
+            roughness={0.95}
+            side={THREE.DoubleSide}
+            flatShading
+          />
+        </mesh>
+      ))}
+
+      {hillData.shelves.map((item, index) => (
+        <group
+          key={`shelf-${index}`}
+          position={[0, item.y, 0]}
+        >
+          <mesh
+            geometry={item.geometry}
+            rotation={[0, 0, 0]}
+            receiveShadow
+            castShadow
+          >
+            <meshStandardMaterial
+              color={
+                index % 3 === 0
+                  ? COLORS.crop
+                  : index % 3 === 1
+                  ? COLORS.cropLight
+                  : COLORS.cropDark
+              }
+              roughness={0.93}
+              side={THREE.DoubleSide}
+              flatShading
+            />
+          </mesh>
+        </group>
+      ))}
+
+      {/* Summit plateau */}
+      <mesh
+        geometry={hillData.topCap}
+        position={[0, hillData.topY, 0]}
+        receiveShadow
+      >
+        <meshStandardMaterial
+          color={COLORS.cropLight}
+          roughness={0.95}
+          side={THREE.DoubleSide}
+          flatShading
+        />
+      </mesh>
+
+      {/* Subtle flooded paddy shelves */}
+      {hillData.waterShelves.map((item, index) => (
+        <WaterPaddy
+          key={`water-${index}`}
+          geometry={item.geometry}
+          positionY={item.y}
+          seed={seed + index}
+        />
+      ))}
+
+      {/* Low-poly foliage clumps along the terrace rims */}
+      {shrubPositions.map((plant, index) => (
+        <Bush
+          key={`bush-${index}`}
+          position={[plant.x, plant.y, plant.z]}
+          scale={plant.scale}
+          shade={plant.shade}
+        />
+      ))}
+
+      {/* Small crop tufts */}
+      {plantPositions.map((plant, index) => (
+        <RiceTuft
+          key={`rice-${index}`}
+          position={[plant.x, plant.y, plant.z]}
+          scale={plant.scale}
+          rotation={plant.angle}
+        />
+      ))}
+    </group>
+  );
+}
+
+function hillDataTopY(baseY, levels, stepHeight) {
+  return baseY + levels * stepHeight;
+}
+
+/* -------------------- WATER PADDIES -------------------- */
+
+function WaterPaddy({ geometry, positionY, seed }) {
+  const materialRef = useRef();
+
+  useFrame(({ clock }) => {
+    if (!materialRef.current) return;
+
+    materialRef.current.opacity =
+      0.28 + Math.sin(clock.elapsedTime * 0.7 + seed) * 0.035;
+  });
+
+  return (
+    <mesh
+      geometry={geometry}
+      position={[0, positionY, 0]}
+      renderOrder={2}
+    >
+      <meshStandardMaterial
+        ref={materialRef}
+        color={COLORS.water}
+        transparent
+        opacity={0.3}
+        roughness={0.24}
+        metalness={0.03}
+        side={THREE.DoubleSide}
+        depthWrite={false}
+      />
+    </mesh>
+  );
+}
+
+/* -------------------- STYLIZED SHRUBS -------------------- */
+
+function Bush({ position, scale = 0.1, shade = 0 }) {
+  const palette = [
+    COLORS.bush,
+    COLORS.bushLight,
+    COLORS.bushMid,
+  ];
+
+  const color = palette[shade % palette.length];
+
+  return (
+    <group position={position} scale={scale}>
+      <mesh
+        position={[0, 0.45, 0]}
+        castShadow
+        receiveShadow
+      >
+        <icosahedronGeometry args={[0.85, 1]} />
+        <meshStandardMaterial
+          color={color}
+          roughness={1}
+          flatShading
+        />
+      </mesh>
+
+      <mesh
+        position={[-0.45, 0.32, 0.05]}
+        scale={[0.75, 0.8, 0.8]}
+        castShadow
+      >
+        <icosahedronGeometry args={[0.65, 1]} />
+        <meshStandardMaterial
+          color={COLORS.bushMid}
+          roughness={1}
+          flatShading
+        />
+      </mesh>
+
+      <mesh
+        position={[0.42, 0.34, -0.06]}
+        scale={[0.78, 0.75, 0.78]}
+        castShadow
+      >
+        <icosahedronGeometry args={[0.65, 1]} />
+        <meshStandardMaterial
+          color={COLORS.bushLight}
+          roughness={1}
+          flatShading
+        />
+      </mesh>
+    </group>
+  );
+}
+
+/* -------------------- RICE PLANT TUFTS -------------------- */
+
+function RiceTuft({ position, scale = 0.05, rotation = 0 }) {
+  return (
+    <group
+      position={position}
+      rotation={[0, rotation, 0]}
+      scale={scale}
+    >
+      {[0, 1, 2, 3].map((blade) => (
+        <mesh
+          key={blade}
+          position={[
+            Math.sin(blade * 1.6) * 0.26,
+            0.27 + (blade % 2) * 0.035,
+            Math.cos(blade * 1.6) * 0.26,
+          ]}
+          rotation={[
+            Math.sin(blade * 1.7) * 0.18,
+            0,
+            (blade - 1.5) * 0.19,
+          ]}
+        >
+          <coneGeometry args={[0.12, 0.68, 3]} />
+          <meshStandardMaterial
+            color={
+              blade % 2 === 0
+                ? COLORS.cropDark
+                : COLORS.cropLight
+            }
+            roughness={1}
+            flatShading
+          />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/* -------------------- BASE LANDSCAPE -------------------- */
+
+function LandscapeBase() {
+  const baseGeometry = useMemo(() => {
+    const geometry = new THREE.IcosahedronGeometry(1, 2);
+    const position = geometry.attributes.position;
+
+    for (let i = 0; i < position.count; i++) {
+      const x = position.getX(i);
+      const y = position.getY(i);
+      const z = position.getZ(i);
+
+      const irregularity =
+        1 +
+        0.035 * Math.sin(x * 8 + z * 4) +
+        0.025 * Math.cos(z * 7 - y * 3);
+
+      position.setXYZ(
+        i,
+        x * irregularity,
+        y * irregularity,
+        z * irregularity
+      );
+    }
+
+    geometry.computeVertexNormals();
+    return geometry;
+  }, []);
+
+  return (
+    <group>
+      {/* Broad organic landform under all three hills */}
+      <mesh
+        geometry={baseGeometry}
+        position={[0, -0.1, 0]}
+        scale={[1.5, 0.12, 1.5]}
+        castShadow
+        receiveShadow
+      >
+        <meshStandardMaterial
+          color={COLORS.base}
+          roughness={1}
+          flatShading
+        />
+      </mesh>
+
+      {/* Darker low-poly front edge for visual depth */}
+      <mesh
+        position={[0, -0.15, 0.12]}
+        scale={[1.45, 0.08, 1.45]}
+        receiveShadow
+      >
+        <icosahedronGeometry args={[1, 2]} />
+        <meshStandardMaterial
+          color={COLORS.baseDark}
+          roughness={1}
+          flatShading
+        />
+      </mesh>
+    </group>
+  );
+}
+
+/* -------------------- QR GROUND -------------------- */
 
 function Box({
   pos = [0, 0, 0],
   size = [1, 1, 1],
   color = "#ffffff",
   rot = [0, 0, 0],
-  castShadow = true,
-  receiveShadow = true,
-  material,
+  shadow = true,
 }) {
   return (
     <mesh
       position={pos}
+      scale={size}
       rotation={rot}
-      material={material || mat(color)}
-      castShadow={castShadow}
-      receiveShadow={receiveShadow}
-    >
-      <boxGeometry args={size} />
-    </mesh>
-  );
-}
-
-function Cylinder({
-  pos = [0, 0, 0],
-  top = 0.02,
-  bottom = 0.04,
-  height = 0.1,
-  segments = 7,
-  color = "#ffffff",
-  rot = [0, 0, 0],
-}) {
-  return (
-    <mesh
-      position={pos}
-      rotation={rot}
-      material={mat(color)}
-      castShadow
+      castShadow={shadow}
       receiveShadow
     >
-      <cylinderGeometry args={[top, bottom, height, segments]} />
-    </mesh>
-  );
-}
-
-function Orb({
-  pos = [0, 0, 0],
-  radius = 0.1,
-  color = "#ffffff",
-  scale = [1, 1, 1],
-  emissive = "#000000",
-  emissiveIntensity = 0,
-}) {
-  return (
-    <mesh position={pos} scale={scale} castShadow receiveShadow>
-      <sphereGeometry args={[radius, 10, 8]} />
+      <boxGeometry args={[1, 1, 1]} />
       <meshStandardMaterial
         color={color}
-        roughness={0.9}
-        emissive={emissive}
-        emissiveIntensity={emissiveIntensity}
+        roughness={0.88}
+        flatShading
       />
     </mesh>
   );
 }
 
-function GlowPx({ pos, color, size = 0.025 }) {
-  const ref = useRef();
-
-  useFrame(({ clock }) => {
-    if (!ref.current) return;
-
-    const t = clock.elapsedTime;
-    const pulse = 0.9 + Math.sin(t * 2.2 + pos[0] * 3) * 0.1;
-    ref.current.scale.setScalar(pulse);
-  });
-
-  return (
-    <mesh ref={ref} position={pos}>
-      <boxGeometry args={[size, size, size]} />
-      <meshBasicMaterial color={color} toneMapped={false} />
-    </mesh>
-  );
-}
-
-// ------------------------------------------------------------
-// Mountain profiles
-//
-// The terraces follow multiple connected, curved mountain
-// contours rather than appearing as square stacked platforms.
-// ------------------------------------------------------------
-
-const HILLS = [
-  {
-    x: -0.34,
-    z: -0.25,
-    width: 1.02,
-    depth: 0.91,
-    height: 0.88,
-    seed: 2.1,
-    levels: 12,
-  },
-  {
-    x: 0.36,
-    z: -0.31,
-    width: 0.93,
-    depth: 0.84,
-    height: 0.79,
-    seed: 5.4,
-    levels: 11,
-  },
-  {
-    x: 0.02,
-    z: -0.11,
-    width: 0.82,
-    depth: 0.75,
-    height: 0.66,
-    seed: 8.3,
-    levels: 10,
-  },
-];
-
-function hillProfile(x, z, hill) {
-  const dx = (x - hill.x) / hill.width;
-  const dz = (z - hill.z) / hill.depth;
-  const distance = dx * dx + dz * dz;
-
-  if (distance >= 1.15) return 0;
-
-  const broad = Math.pow(Math.max(0, 1 - distance), 0.72);
-  const shoulder = Math.exp(-distance * 1.35);
-
-  const irregularity =
-    Math.sin(x * 13 + hill.seed) *
-      Math.cos(z * 11 + hill.seed * 2) *
-      0.024 +
-    Math.sin(x * 21 - z * 16 + hill.seed) * 0.012;
-
-  return Math.max(
-    0,
-    hill.height * broad * 0.76 +
-      hill.height * 0.23 * shoulder +
-      irregularity
-  );
-}
-
-function terrainHeight(x, z) {
-  let height = 0;
-
-  for (const hill of HILLS) {
-    height = Math.max(height, hillProfile(x, z, hill));
-  }
-
-  // A steep but gradual descent toward the front valley.
-  const frontFade = clamp((0.8 - z) / 0.92, 0, 1);
-
-  return height * frontFade;
-}
-
-// ------------------------------------------------------------
-// Natural mountain mesh
-// ------------------------------------------------------------
-
-function createTerrainGeometry() {
-  const segmentsX = 110;
-  const segmentsZ = 100;
-  const width = 2.95;
-  const depth = 2.72;
-
-  const geometry = new THREE.PlaneGeometry(
-    width,
-    depth,
-    segmentsX,
-    segmentsZ
-  );
-
-  geometry.rotateX(-Math.PI / 2);
-
-  const positions = geometry.attributes.position;
-  const colors = [];
-
-  const low = new THREE.Color("#3D573C");
-  const middle = new THREE.Color("#617F4F");
-  const high = new THREE.Color("#8C9D6B");
-  const random = rng(3041);
-
-  for (let i = 0; i < positions.count; i++) {
-    const x = positions.getX(i);
-    const z = positions.getZ(i);
-
-    const height =
-      terrainHeight(x, z) + (random() - 0.5) * 0.006;
-
-    positions.setY(i, height);
-
-    const color = new THREE.Color();
-
-    if (height < 0.12) {
-      color.copy(low).lerp(middle, height / 0.12);
-    } else {
-      color
-        .copy(middle)
-        .lerp(high, clamp((height - 0.12) / 0.7, 0, 1));
-    }
-
-    const variation = (random() - 0.5) * 0.045;
-    color.offsetHSL(0, variation * 0.18, variation);
-
-    colors.push(color.r, color.g, color.b);
-  }
-
-  geometry.setAttribute(
-    "color",
-    new THREE.Float32BufferAttribute(colors, 3)
-  );
-
-  geometry.computeVertexNormals();
-
-  return geometry;
-}
-
-function DistantRidge({ position, scale, color }) {
-  const geometry = useMemo(() => {
-    const geo = new THREE.SphereGeometry(1, 32, 20);
-    const positions = geo.attributes.position;
-
-    for (let i = 0; i < positions.count; i++) {
-      const x = positions.getX(i);
-      const y = positions.getY(i);
-      const z = positions.getZ(i);
-
-      const roughness =
-        Math.sin(x * 7 + z * 3) * 0.028 +
-        Math.cos(z * 9 + y * 4) * 0.02;
-
-      positions.setXYZ(
-        i,
-        x * (1 + roughness),
-        y * (1 + roughness),
-        z * (1 + roughness)
-      );
-    }
-
-    geo.computeVertexNormals();
-
-    return geo;
-  }, []);
-
-  return (
-    <mesh
-      geometry={geometry}
-      position={position}
-      scale={scale}
-      material={mat(color, 1)}
-      castShadow
-      receiveShadow
-    />
-  );
-}
-
-function MountainTerrain({ C }) {
-  const geometry = useMemo(() => createTerrainGeometry(), []);
-
-  return (
-    <group>
-      <mesh
-        geometry={geometry}
-        position={[0, -0.018, 0]}
-        receiveShadow
-        castShadow
-      >
-        <meshStandardMaterial vertexColors roughness={1} />
-      </mesh>
-
-      {/* Layered mountain ridges behind the paddies */}
-      <DistantRidge
-        position={[-0.88, 0.18, -0.78]}
-        scale={[0.82, 0.76, 0.42]}
-        color={C.mountainDark}
-      />
-
-      <DistantRidge
-        position={[0.78, 0.16, -0.82]}
-        scale={[0.92, 0.78, 0.43]}
-        color={C.mountain}
-      />
-
-      <DistantRidge
-        position={[0.02, 0.2, -0.96]}
-        scale={[1.05, 0.76, 0.4]}
-        color={C.distantMountain}
-      />
-
-      {/* Dark forest band below the far ridge */}
-      {Array.from({ length: 21 }, (_, i) => {
-        const x = -1.24 + i * 0.124;
-        const z = -0.83 + Math.sin(i * 0.68) * 0.07;
-        const y = terrainHeight(x, z) + 0.02;
-
-        return (
-          <Orb
-            key={`ridge-tree-${i}`}
-            pos={[x, y, z]}
-            radius={0.11 + (i % 3) * 0.015}
-            scale={[1.15, 1.3, 0.9]}
-            color={i % 2 ? C.mountainDark : C.forestGreen}
-          />
-        );
-      })}
-    </group>
-  );
-}
-
-// ------------------------------------------------------------
-// Curved terrace geometry
-//
-// Every terrace is a broad, curved ribbon following a hill's
-// contour. Its upper surface and retaining wall are separate.
-// ------------------------------------------------------------
-
-function terracePoint(hill, level, u, levels) {
-  const normalizedX = u * 2 - 1;
-
-  const edge = Math.sqrt(
-    Math.max(0, 1 - normalizedX * normalizedX)
-  );
-
-  const x = hill.x + normalizedX * hill.width * 0.98;
-
-  // Curved contour bends, similar to terraces wrapping a slope.
-  const bend =
-    normalizedX * normalizedX * 0.12 +
-    Math.sin(normalizedX * 3.1 + hill.seed) * 0.045;
-
-  const z =
-    hill.z +
-    bend +
-    (level / levels - 0.5) * hill.depth * 1.22;
-
-  const heightRatio = level / levels;
-
-  const y =
-    0.055 +
-    heightRatio * hill.height * 0.62 +
-    edge * hill.height * 0.14 +
-    Math.sin(normalizedX * 4.2 + hill.seed) * 0.012;
-
-  return {
-    x,
-    z,
-    y,
-    edge,
-    normalizedX,
-  };
-}
-
-function createTerraceGeometry(hill, level, levels) {
-  if (!hill || !hill.width || !hill.height || !hill.depth || levels <= 0) {
-    return new THREE.BufferGeometry();
-  }
-
-  const segments = 96;
-  const t = level / levels;
-
-  const width = hill.width * (1 - t * 0.28);
-  const y = 0.10 + level * hill.height / levels;
-  const zCenter = hill.z - level * hill.depth * 0.72 / levels;
-
-  const positions = [];
-  const indices = [];
-  const colors = [];
-
-  for (let i = 0; i <= segments; i++) {
-    const u = i / segments;
-    const x = (u - 0.5) * width;
-    const contour =
-      Math.sin(u * Math.PI) * 0.075 +
-      Math.sin(u * Math.PI * 2) * 0.018;
-
-    const z = zCenter + contour;
-
-    positions.push(x, y, z);
-    positions.push(x, y, z + 0.04);
-
-    const color = new THREE.Color();
-    color.setHSL(0.25 + u * 0.05, 0.45, 0.55);
-    colors.push(color.r, color.g, color.b);
-    colors.push(color.r, color.g, color.b);
-
-    if (i < segments) {
-      const a = i * 2;
-      indices.push(a, a + 2, a + 1);
-      indices.push(a + 1, a + 2, a + 3);
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(positions, 3)
-  );
-  geometry.setAttribute(
-    "color",
-    new THREE.Float32BufferAttribute(colors, 3)
-  );
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-
-  return geometry;
-}
-
-function createRetainingWallGeometry(hill, level, levels) {
-  if (!hill || !hill.width || !hill.height || !hill.depth || levels <= 0) {
-    return new THREE.BufferGeometry();
-  }
-
-  const segments = 48;
-  const t = level / levels;
-
-  const width = hill.width * (1 - t * 0.28);
-  const depth = hill.depth / levels * 1.5;
-  const yTop = 0.10 + level * hill.height / levels;
-  const yBottom = yTop - Math.max(0.035, hill.height / levels * 0.9);
-  const zCenter = hill.z - level * hill.depth * 0.72 / levels;
-
-  const positions = [];
-  const indices = [];
-
-  for (let i = 0; i <= segments; i++) {
-    const u = i / segments;
-    const x = (u - 0.5) * width;
-    const contour =
-      Math.sin(u * Math.PI) * 0.075 +
-      Math.sin(u * Math.PI * 2) * 0.018;
-
-    const z = zCenter + depth * 0.5 + contour;
-
-    positions.push(x, yTop, z);
-    positions.push(x, yBottom, z + 0.008);
-
-    if (i < segments) {
-      const a = i * 2;
-      indices.push(a, a + 1, a + 2);
-      indices.push(a + 1, a + 3, a + 2);
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(positions, 3)
-  );
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-
-  return geometry;
-}
-
-function TerraceBand({ hill, level, levels, C }) {
-  const paddyGeometry = useMemo(
-    () => createTerraceGeometry(hill, level, levels),
-    [hill, level, levels]
-  );
-
-  const wallGeometry = useMemo(
-    () => createRetainingWallGeometry(hill, level, levels),
-    [hill, level, levels]
-  );
-
-  if (!hill || !hill.width || !hill.height || !hill.depth || levels <= 0) {
-    return null;
-  }
-
-  return (
-    <group>
-      {/* Flat cultivated paddy */}
-      <mesh
-        geometry={paddyGeometry}
-        receiveShadow
-        castShadow
-      >
-        <meshStandardMaterial
-          vertexColors
-          roughness={0.32}
-          metalness={0.04}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-
-      {/* Exposed earth-and-stone retaining wall */}
-      <mesh
-        geometry={wallGeometry}
-        receiveShadow
-        castShadow
-      >
-        <meshStandardMaterial
-          color={level % 2 === 0 ? C.soilLight : C.stone}
-          roughness={0.95}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-    </group>
-  );
-}
-
-// ------------------------------------------------------------
-// Terrace detailing
-// ------------------------------------------------------------
-
-function TerraceStonework({ C }) {
-  const stones = useMemo(() => {
-    const random = rng(8241);
-    const items = [];
-
-    HILLS.forEach((hill, hillIndex) => {
-      for (let level = 0; level < hill.levels; level++) {
-        // Small, irregular stones follow selected retaining walls.
-        for (let i = 0; i < 28; i++) {
-          const u = (i + random() * 0.7) / 28;
-          const p = terracePoint(hill, level, u, hill.levels);
-
-          if (p.edge < 0.2 || random() > 0.76) continue;
-
-          items.push({
-            key: `${hillIndex}-${level}-${i}`,
-            pos: [
-              p.x,
-              p.y - 0.018,
-              p.z + 0.043,
-            ],
-            size: [
-              0.018 + random() * 0.018,
-              0.012 + random() * 0.009,
-              0.012 + random() * 0.01,
-            ],
-            color:
-              random() > 0.5
-                ? C.stone
-                : C.stoneLight,
-          });
-        }
-      }
-    });
-
-    return items;
-  }, [C]);
-
-  return (
-    <group>
-      {stones.map((stone) => (
-        <Box
-          key={stone.key}
-          pos={stone.pos}
-          size={stone.size}
-          color={stone.color}
-        />
-      ))}
-    </group>
-  );
-}
-
-function RicePlants({ C }) {
-  const plants = useMemo(() => {
-    const random = rng(1542);
-    const items = [];
-
-    HILLS.forEach((hill, hillIndex) => {
-      for (let level = 0; level < hill.levels; level++) {
-        for (let i = 0; i < 17; i++) {
-          if (random() > 0.62) continue;
-
-          const u = 0.12 + (i / 17) * 0.76;
-          const p = terracePoint(hill, level, u, hill.levels);
-
-          // Keep some open surfaces to read as water-filled paddies.
-          if (level % 4 === 1 || level % 4 === 2) continue;
-
-          items.push({
-            key: `${hillIndex}-${level}-${i}`,
-            pos: [
-              p.x + (random() - 0.5) * 0.04,
-              p.y + 0.006,
-              p.z + (random() - 0.5) * 0.045,
-            ],
-            height: 0.025 + random() * 0.045,
-            color:
-              random() > 0.5
-                ? C.riceGreen
-                : C.riceLight,
-          });
-        }
-      }
-    });
-
-    return items;
-  }, [C]);
-
-  return (
-    <group>
-      {plants.map((plant) => (
-        <group key={plant.key} position={plant.pos}>
-          <Cylinder
-            pos={[0, plant.height / 2, 0]}
-            top={0.002}
-            bottom={0.004}
-            height={plant.height}
-            segments={4}
-            color={plant.color}
-          />
-
-          <Cylinder
-            pos={[-0.006, plant.height * 0.66, 0]}
-            top={0.001}
-            bottom={0.0025}
-            height={plant.height * 0.65}
-            segments={4}
-            color={C.leafLight}
-            rot={[0, 0, -0.25]}
-          />
-
-          <Cylinder
-            pos={[0.006, plant.height * 0.58, 0.003]}
-            top={0.001}
-            bottom={0.0025}
-            height={plant.height * 0.58}
-            segments={4}
-            color={C.riceLight}
-            rot={[0, 0, 0.3]}
-          />
-        </group>
-      ))}
-    </group>
-  );
-}
-
-// ------------------------------------------------------------
-// Main central rice-terrace landscape
-// ------------------------------------------------------------
-
-function RiceTerraces({ C }) {
-  return (
-    <group>
-      {/* The central hill is the largest and tallest focal point */}
-      {HILLS.map((hill, hillIndex) => (
-        <group key={`hill-${hillIndex}`}>
-          {Array.from({ length: hill.levels }, (_, level) => (
-            <TerraceBand
-              key={`${hillIndex}-${level}`}
-              hill={hill}
-              level={level}
-              levels={hill.levels}
-              C={C}
-            />
-          ))}
-        </group>
-      ))}
-
-      <TerraceStonework C={C} />
-      <RicePlants C={C} />
-
-      {/* A narrow irrigation channel winding down the terraces */}
-      {Array.from({ length: 8 }, (_, i) => {
-        const t = i / 7;
-        const x = -0.23 + Math.sin(t * Math.PI * 1.4) * 0.17;
-        const z = -0.7 + t * 1.05;
-        const y = terrainHeight(x, z) + 0.045;
-
-        return (
-          <group key={`irrigation-${i}`}>
-            <Box
-              pos={[x, y, z]}
-              size={[0.045, 0.009, 0.105]}
-              color={C.water}
-              rot={[0, Math.sin(t * 4) * 0.16, 0]}
-            />
-
-            <Box
-              pos={[x - 0.027, y + 0.008, z]}
-              size={[0.009, 0.018, 0.11]}
-              color={C.stone}
-            />
-          </group>
-        );
-      })}
-
-      {/* Small crossing paths connecting levels */}
-      {[
-        [-0.56, 0.3, -0.14],
-        [-0.39, 0.27, 0.04],
-        [0.37, 0.25, -0.05],
-        [0.55, 0.22, 0.12],
-      ].map((pos, i) => (
-        <Box
-          key={`terrace-path-${i}`}
-          pos={pos}
-          size={[0.15, 0.018, 0.055]}
-          color={C.soilLight}
-          rot={[0, i % 2 === 0 ? -0.2 : 0.2, 0]}
-        />
-      ))}
-    </group>
-  );
-}
-
-// ------------------------------------------------------------
-// Ifugao-inspired raised granaries and huts
-// ------------------------------------------------------------
-
-function IfugaoHut({ C, position, scale = 1 }) {
-  return (
-    <group position={position} scale={scale}>
-      {/* Four raised wooden supports */}
-      {[
-        [-0.07, -0.06],
-        [0.07, -0.06],
-        [-0.07, 0.06],
-        [0.07, 0.06],
-      ].map(([x, z], i) => (
-        <Box
-          key={`hut-post-${i}`}
-          pos={[x, 0.105, z]}
-          size={[0.014, 0.21, 0.014]}
-          color={C.wood}
-        />
-      ))}
-
-      <Box
-        pos={[0, 0.215, 0]}
-        size={[0.21, 0.025, 0.19]}
-        color={C.woodLight}
-      />
-
-      <Box
-        pos={[0, 0.29, 0]}
-        size={[0.17, 0.13, 0.15]}
-        color={C.wood}
-      />
-
-      <Box
-        pos={[0, 0.275, 0.077]}
-        size={[0.035, 0.08, 0.008]}
-        color={C.soilDark}
-      />
-
-      {/* Steep roof silhouette */}
-      <Cylinder
-        pos={[0, 0.395, 0]}
-        top={0}
-        bottom={0.155}
-        height={0.19}
-        segments={4}
-        color={C.thatch}
-        rot={[0, Math.PI / 4, 0]}
-      />
-
-      <Cylinder
-        pos={[0, 0.315, 0]}
-        top={0.155}
-        bottom={0.15}
-        height={0.025}
-        segments={4}
-        color={C.wood}
-        rot={[0, Math.PI / 4, 0]}
-      />
-    </group>
-  );
-}
-
-function Village({ C }) {
-  return (
-    <group>
-      {/* Kept to the side and rear so the terraces remain dominant */}
-      <IfugaoHut
-        C={C}
-        position={[-0.91, 0.12, -0.48]}
-        scale={0.52}
-      />
-
-      <IfugaoHut
-        C={C}
-        position={[0.91, 0.1, -0.47]}
-        scale={0.48}
-      />
-
-      <IfugaoHut
-        C={C}
-        position={[0.78, 0.04, 0.54]}
-        scale={0.4}
-      />
-    </group>
-  );
-}
-
-// ------------------------------------------------------------
-// Forest and border vegetation
-// ------------------------------------------------------------
-
-function Tree({ C, position, scale = 1, seed = 1 }) {
-  const random = rng(seed);
-
-  const crownColors = [
-    C.forestGreen,
-    C.mossGreen,
-    C.mountain,
-    C.riceGreen,
-  ];
-
-  return (
-    <group position={position} scale={scale}>
-      <Cylinder
-        pos={[0, 0.13, 0]}
-        top={0.012}
-        bottom={0.022}
-        height={0.26}
-        segments={5}
-        color={C.wood}
-      />
-
-      {[0, 1, 2].map((i) => {
-        const y = 0.24 + i * 0.065;
-        const radius = 0.09 - i * 0.018;
-
-        return (
-          <mesh
-            key={i}
-            position={[
-              (random() - 0.5) * 0.035,
-              y,
-              (random() - 0.5) * 0.035,
-            ]}
-            material={mat(crownColors[i % crownColors.length])}
-            castShadow
-          >
-            <coneGeometry args={[radius, 0.16, 6]} />
-          </mesh>
-        );
-      })}
-    </group>
-  );
-}
-
-function Forest({ C }) {
-  const trees = useMemo(() => {
-    const random = rng(4567);
-    const items = [];
-
-    for (let i = 0; i < 54; i++) {
-      const side = i % 2 === 0 ? -1 : 1;
-      const x = side * (0.98 + random() * 0.36);
-      const z = -0.95 + random() * 1.9;
-
-      items.push({
-        x,
-        z,
-        scale: 0.42 + random() * 0.58,
-        seed: i * 19 + 31,
-      });
-    }
-
-    // Back ridge trees frame the terraces like a forested valley.
-    for (let i = 0; i < 15; i++) {
-      const x = -1.16 + i * 0.165;
-      const z = -1.12 + Math.sin(i * 0.7) * 0.05;
-
-      items.push({
-        x,
-        z,
-        scale: 0.42 + random() * 0.4,
-        seed: i * 31 + 100,
-      });
-    }
-
-    return items;
-  }, []);
-
-  return (
-    <group>
-      {trees.map((tree, i) => (
-        <Tree
-          key={i}
-          C={C}
-          position={[
-            tree.x,
-            terrainHeight(tree.x, tree.z) - 0.005,
-            tree.z,
-          ]}
-          scale={tree.scale}
-          seed={tree.seed}
-        />
-      ))}
-    </group>
-  );
-}
-
-// ------------------------------------------------------------
-// Terraced-field border accents
-// ------------------------------------------------------------
-
-function BorderDetails({ C }) {
-  const random = useMemo(() => rng(6124), []);
-
-  const stones = useMemo(() => {
-    const items = [];
-
-    for (let i = 0; i < 34; i++) {
-      const side = i % 4;
-      const t = -1.16 + random() * 2.32;
-
-      let x;
-      let z;
-
-      if (side === 0) {
-        x = t;
-        z = -1.25;
-      } else if (side === 1) {
-        x = t;
-        z = 1.25;
-      } else if (side === 2) {
-        x = -1.25;
-        z = t;
-      } else {
-        x = 1.25;
-        z = t;
-      }
-
-      items.push({
-        pos: [x, 0.01, z],
-        size: [
-          0.06 + random() * 0.06,
-          0.025 + random() * 0.02,
-          0.05 + random() * 0.045,
-        ],
-        color: random() > 0.5 ? C.stone : C.stoneDark,
-      });
-    }
-
-    return items;
-  }, [C, random]);
-
-  return (
-    <group>
-      {/* Mossy stones framing the miniature landscape */}
-      {stones.map((stone, i) => (
-        <group key={`border-stone-${i}`}>
-          <Box
-            pos={stone.pos}
-            size={stone.size}
-            color={stone.color}
-          />
-
-          {i % 3 === 0 && (
-            <Orb
-              pos={[
-                stone.pos[0],
-                stone.pos[1] + 0.025,
-                stone.pos[2],
-              ]}
-              radius={0.035}
-              scale={[1.2, 0.35, 0.9]}
-              color={C.mossGreen}
-            />
-          )}
-        </group>
-      ))}
-
-      {/* Small rice bundles and cultivated plants along the edges */}
-      {Array.from({ length: 22 }, (_, i) => {
-        const side = i % 4;
-        const t = -1.15 + (i / 22) * 2.3;
-
-        let x;
-        let z;
-
-        if (side === 0) {
-          x = t;
-          z = -1.2;
-        } else if (side === 1) {
-          x = t;
-          z = 1.2;
-        } else if (side === 2) {
-          x = -1.2;
-          z = t;
-        } else {
-          x = 1.2;
-          z = t;
-        }
-
-        return (
-          <group key={`border-rice-${i}`} position={[x, 0.02, z]}>
-            <Cylinder
-              pos={[0, 0.045, 0]}
-              top={0.002}
-              bottom={0.006}
-              height={0.09}
-              segments={4}
-              color={C.riceGreen}
-            />
-
-            <Orb
-              pos={[-0.018, 0.075, 0]}
-              radius={0.025}
-              scale={[1.3, 0.35, 0.55]}
-              color={C.riceLight}
-            />
-
-            <Orb
-              pos={[0.018, 0.06, 0.008]}
-              radius={0.024}
-              scale={[1.3, 0.35, 0.55]}
-              color={C.leafLight}
-            />
-          </group>
-        );
-      })}
-
-      {/* Golden field markers */}
-      {Array.from({ length: 12 }, (_, i) => {
-        const x = -0.93 + i * 0.169;
-
-        return (
-          <group key={`field-marker-${i}`}>
-            <Box
-              pos={[x, 0.009, -1.35]}
-              size={[0.028, 0.015, 0.045]}
-              color={i % 3 === 0 ? C.gold : C.soilLight}
-            />
-
-            <Box
-              pos={[x, 0.009, 1.35]}
-              size={[0.028, 0.015, 0.045]}
-              color={i % 3 === 0 ? C.gold : C.soilLight}
-            />
-          </group>
-        );
-      })}
-
-      {/* Warm fireflies around the valley border */}
-      {Array.from({ length: 18 }, (_, i) => {
-        const random = rng(i + 803);
-        const x = (random() - 0.5) * 2.45;
-        const y = 0.12 + random() * 0.55;
-        const z = (random() - 0.5) * 2.45;
-
-        return (
-          <GlowPx
-            key={`border-firefly-${i}`}
-            pos={[x, y, z]}
-            color={i % 3 === 0 ? C.goldLight : C.sun}
-            size={i % 4 === 0 ? 0.018 : 0.012}
-          />
-        );
-      })}
-    </group>
-  );
-}
-
-// ------------------------------------------------------------
-// Small QR-corner landmarks
-// ------------------------------------------------------------
-
-function FinderIfugaoShrine({ C }) {
-  const x = (3 - (GRID - 1) / 2) * TILE;
-  const z = (3 - (GRID - 1) / 2) * TILE;
-
-  return (
-    <group position={[x, 0.095, z]}>
-      <Box pos={[0, 0.025, 0]} size={[0.24, 0.05, 0.22]} color={C.stone} />
-      <Box pos={[0, 0.065, 0]} size={[0.17, 0.035, 0.16]} color={C.stoneLight} />
-      <Box pos={[0, 0.09, 0]} size={[0.1, 0.025, 0.1]} color={C.wood} />
-      <Box pos={[0, 0.17, 0]} size={[0.035, 0.15, 0.035]} color={C.wood} />
-      <Box pos={[0, 0.255, 0]} size={[0.075, 0.025, 0.075]} color={C.gold} />
-      <GlowPx pos={[0, 0.3, 0]} color={C.goldLight} size={0.022} />
-    </group>
-  );
-}
-
-function FinderWaterfallStream({ C }) {
-  const x = (GRID - 4 - (GRID - 1) / 2) * TILE;
-  const z = (3 - (GRID - 1) / 2) * TILE;
-  const waterRef = useRef();
-
-  useFrame(({ clock }) => {
-    if (!waterRef.current) return;
-
-    waterRef.current.material.opacity =
-      0.45 + Math.sin(clock.elapsedTime * 2.1) * 0.12;
-  });
-
-  return (
-    <group position={[x, 0.095, z]}>
-      <Box pos={[0, 0.025, 0]} size={[0.23, 0.05, 0.21]} color={C.stone} />
-      <Box pos={[0, 0.055, 0]} size={[0.15, 0.025, 0.14]} color={C.stoneLight} />
-
-      <mesh
-        ref={waterRef}
-        position={[0, 0.08, 0]}
-        rotation={[-Math.PI / 2, 0, 0]}
-      >
-        <circleGeometry args={[0.07, 12]} />
-        <meshBasicMaterial
-          color={C.waterLight}
-          transparent
-          opacity={0.5}
-          toneMapped={false}
-        />
-      </mesh>
-
-      <Box
-        pos={[0, 0.115, 0.045]}
-        size={[0.035, 0.075, 0.025]}
-        color={C.water}
-      />
-
-      <GlowPx pos={[0, 0.17, 0.045]} color={C.waterLight} size={0.02} />
-    </group>
-  );
-}
-
-function FinderRiceGranary({ C }) {
-  const x = (3 - (GRID - 1) / 2) * TILE;
-  const z = (GRID - 4 - (GRID - 1) / 2) * TILE;
-
-  return (
-    <group position={[x, 0.095, z]}>
-      <Box pos={[0, 0.02, 0]} size={[0.2, 0.04, 0.19]} color={C.stone} />
-
-      {[
-        [-0.06, -0.06],
-        [0.06, -0.06],
-        [-0.06, 0.06],
-        [0.06, 0.06],
-      ].map(([dx, dz], i) => (
-        <Box
-          key={i}
-          pos={[dx, 0.09, dz]}
-          size={[0.012, 0.12, 0.012]}
-          color={C.wood}
-        />
-      ))}
-
-      <Box pos={[0, 0.16, 0]} size={[0.15, 0.025, 0.15]} color={C.woodLight} />
-      <Box pos={[0, 0.225, 0]} size={[0.13, 0.11, 0.13]} color={C.wood} />
-
-      <Cylinder
-        pos={[0, 0.315, 0]}
-        top={0}
-        bottom={0.105}
-        height={0.085}
-        segments={4}
-        color={C.thatch}
-        rot={[0, Math.PI / 4, 0]}
-      />
-
-      <GlowPx pos={[0, 0.37, 0]} color={C.gold} size={0.02} />
-    </group>
-  );
-}
-
-// ------------------------------------------------------------
-// QR ground
-// ------------------------------------------------------------
-
-function QRGround({ matrix, C }) {
-  const modules = useMemo(() => {
-    const items = [];
-
-    for (let z = 0; z < GRID; z++) {
-      for (let x = 0; x < GRID; x++) {
-        const finder = isFinderZone(x, z);
-        const timing = (z === 6 || x === 6) && !finder;
-        const dark = matrix[z][x];
-
-        let height = 0.022;
-        let color = C.base;
-
-        if (finder) {
-          height = 0.095;
-          color = dark ? C.modDark : C.modLight;
-        } else if (timing) {
-          height = dark ? 0.055 : 0.022;
-          color = dark ? C.modDarkAlt : C.base;
-        } else if (dark) {
-          height = 0.072;
-          color = (x + z) % 4 === 0 ? C.modDarkAlt : C.modDark;
-        }
-
-        items.push({
-          key: `${x}-${z}`,
-          x: (x - (GRID - 1) / 2) * TILE,
-          z: (z - (GRID - 1) / 2) * TILE,
-          height,
-          color,
-          dark,
-          finder,
-        });
-      }
-    }
-
-    return items;
-  }, [matrix, C]);
-
-  return (
-    <group>
-      <Box
-        pos={[0, -0.07, 0]}
-        size={[GRID * TILE + 0.14, 0.13, GRID * TILE + 0.14]}
-        color={C.soilDark}
-        castShadow={false}
-      />
-
-      {modules.map((module) => (
-        <Box
-          key={module.key}
-          pos={[module.x, module.height / 2, module.z]}
-          size={[
-            TILE * (module.finder ? 0.97 : 0.94),
-            module.height,
-            TILE * (module.finder ? 0.97 : 0.94),
-          ]}
-          color={module.color}
-          castShadow={module.dark}
-        />
-      ))}
-
-      {/* Earthen perimeter */}
-      {[
-        [0, -0.13, -HALF - 0.045, [GRID * TILE + 0.12, 0.08, 0.08]],
-        [0, -0.13, HALF + 0.045, [GRID * TILE + 0.12, 0.08, 0.08]],
-        [-HALF - 0.045, -0.13, 0, [0.08, 0.08, GRID * TILE]],
-        [HALF + 0.045, -0.13, 0, [0.08, 0.08, GRID * TILE]],
-      ].map(([x, y, z, size], i) => (
-        <Box
-          key={i}
-          pos={[x, y, z]}
-          size={size}
-          color={C.soil}
-        />
-      ))}
-    </group>
-  );
-}
-
-// ------------------------------------------------------------
-// Decorative QR modules
-// ------------------------------------------------------------
-
-function DarkModuleDecor({ matrix, C }) {
-  const items = useMemo(() => {
-    const random = rng(9999);
+function QRGround({ matrix }) {
+  const tiles = useMemo(() => {
     const output = [];
 
     for (let z = 0; z < GRID; z++) {
       for (let x = 0; x < GRID; x++) {
-        if (!matrix[z][x] || isFinderZone(x, z)) continue;
-        if (z === 6 || x === 6) continue;
+        const finder = isFinderZone(x, z);
+        const timing = (x === 6 || z === 6) && !finder;
+        const dark = matrix[z][x];
 
-        const cx = Math.abs(x - (GRID - 1) / 2);
-        const cz = Math.abs(z - (GRID - 1) / 2);
+        let height = H_BASE;
+        let color = COLORS.base;
 
-        // Protect the central mountain silhouette.
-        if (cx < 6 && cz < 6) continue;
-        if (random() > 0.19) continue;
+        if (finder) {
+          height = dark ? H_FINDER : H_BASE;
+          color = dark ? COLORS.wall : COLORS.base;
+        } else if (timing && dark) {
+          height = 0.055;
+          color = COLORS.wallLight;
+        } else if (dark) {
+          height = H_DARK;
+          color = (x + z) % 4 === 0 ? COLORS.wallLight : COLORS.wall;
+        }
 
         output.push({
-          key: `${x}-${z}`,
           x: (x - (GRID - 1) / 2) * TILE,
           z: (z - (GRID - 1) / 2) * TILE,
-          height: 0.035 + random() * 0.025,
-          type: Math.floor(random() * 3),
+          height,
+          color,
+          size: finder ? 0.96 : 0.9,
         });
       }
     }
@@ -1455,246 +827,305 @@ function DarkModuleDecor({ matrix, C }) {
 
   return (
     <group>
-      {items.map((item) => (
-        <group key={item.key} position={[item.x, 0.072, item.z]}>
-          {item.type === 0 ? (
-            <>
-              <Box
-                pos={[0, item.height / 2, 0]}
-                size={[0.006, item.height, 0.006]}
-                color={C.forestGreen}
-              />
+      <Box
+        pos={[0, -0.06, 0]}
+        size={[GRID * TILE + 0.12, 0.12, GRID * TILE + 0.12]}
+        color={COLORS.base}
+        shadow={false}
+      />
 
-              <Cylinder
-                pos={[0, item.height, 0]}
-                top={0}
-                bottom={0.009}
-                height={0.04}
-                segments={4}
-                color={C.riceLight}
-              />
-            </>
-          ) : item.type === 1 ? (
-            <Box
-              pos={[0, 0.014, 0]}
-              size={[0.025, 0.025, 0.02]}
-              color={C.stone}
-            />
-          ) : (
-            <>
-              <Box
-                pos={[0, 0.025, 0]}
-                size={[0.006, 0.05, 0.006]}
-                color={C.forestGreen}
-              />
-
-              <GlowPx
-                pos={[0, 0.055, 0]}
-                color={C.goldLight}
-                size={0.012}
-              />
-            </>
-          )}
-        </group>
+      {tiles.map((tile, index) => (
+        <Box
+          key={index}
+          pos={[tile.x, tile.height / 2, tile.z]}
+          size={[
+            TILE * tile.size,
+            tile.height,
+            TILE * tile.size,
+          ]}
+          color={tile.color}
+          shadow={false}
+        />
       ))}
+
+      <Box
+        pos={[0, -0.15, 0]}
+        size={[GRID * TILE + 0.18, 0.1, GRID * TILE + 0.18]}
+        color="#5BA3C7"
+      />
+
+      <Box
+        pos={[0, -0.24, 0]}
+        size={[GRID * TILE + 0.12, 0.1, GRID * TILE + 0.12]}
+        color="#4A8FB0"
+      />
+
+      {[
+        [-HALF - 0.05, -0.08, 0, [0.09, 0.08, GRID * TILE]],
+        [HALF + 0.05, -0.08, 0, [0.09, 0.08, GRID * TILE]],
+        [0, -0.08, -HALF - 0.05, [GRID * TILE + 0.18, 0.08, 0.09]],
+        [0, -0.08, HALF + 0.05, [GRID * TILE + 0.18, 0.08, 0.09]],
+      ].map(([x, y, z, size], index) => (
+        <Box
+          key={index}
+          pos={[x, y, z]}
+          size={size}
+          color="#4A8FB0"
+        />
+      ))}
+
+      {/* Underlay provides a clean border around the terrain */}
+      <Box
+        pos={[0, -0.32, 0]}
+        size={[GRID * TILE + 0.24, 0.08, GRID * TILE + 0.24]}
+        color={COLORS.floor}
+        shadow={false}
+      />
     </group>
   );
 }
 
-// ------------------------------------------------------------
-// Animated mist
-// ------------------------------------------------------------
+/* -------------------- PATHS AND IRRIGATION -------------------- */
 
-function MistClouds({ C }) {
-  const group = useRef();
+function TerracePath({ points, radius = 0.045 }) {
+  const curve = useMemo(
+    () =>
+      new THREE.CatmullRomCurve3(
+        points.map(
+          ([x, y, z]) => new THREE.Vector3(x, y, z)
+        )
+      ),
+    [points]
+  );
 
-  const clouds = useMemo(() => {
-    const random = rng(6666);
-
-    return Array.from({ length: 12 }, () => ({
-      x: (random() - 0.5) * 2.25,
-      y: 0.42 + random() * 0.42,
-      z: -0.65 + (random() - 0.5) * 1.25,
-      phase: random() * Math.PI * 2,
-      speed: 0.12 + random() * 0.16,
-      size: 0.1 + random() * 0.11,
-    }));
-  }, []);
-
-  useFrame(({ clock }) => {
-    if (!group.current) return;
-
-    const t = clock.elapsedTime;
-
-    group.current.children.forEach((mesh, i) => {
-      const cloud = clouds[i];
-
-      mesh.position.set(
-        cloud.x + Math.sin(t * cloud.speed + cloud.phase) * 0.07,
-        cloud.y + Math.sin(t * cloud.speed * 0.8 + cloud.phase) * 0.025,
-        cloud.z + Math.cos(t * cloud.speed + cloud.phase) * 0.06
-      );
-    });
-  });
+  const geometry = useMemo(
+    () => new THREE.TubeGeometry(curve, 36, radius, 5, false),
+    [curve, radius]
+  );
 
   return (
-    <group ref={group}>
-      {clouds.map((cloud, i) => (
-        <mesh key={i} position={[cloud.x, cloud.y, cloud.z]}>
-          <sphereGeometry args={[cloud.size, 10, 7]} />
-
-          <meshBasicMaterial
-            color={C.mist}
-            transparent
-            opacity={0.11}
-            depthWrite={false}
-            toneMapped={false}
-          />
-        </mesh>
-      ))}
-    </group>
+    <mesh geometry={geometry} castShadow receiveShadow>
+      <meshStandardMaterial
+        color={COLORS.path}
+        roughness={1}
+        flatShading
+      />
+    </mesh>
   );
 }
 
-// ------------------------------------------------------------
-// Rice-field fireflies
-// ------------------------------------------------------------
+/* -------------------- CLOUDS -------------------- */
 
-function Fireflies({ C }) {
-  const group = useRef();
-
-  const particles = useMemo(() => {
-    const random = rng(7777);
-
-    return Array.from({ length: 22 }, () => ({
-      x: (random() - 0.5) * 2.15,
-      y: 0.2 + random() * 0.65,
-      z: -0.4 + (random() - 0.5) * 1.5,
-      phase: random() * Math.PI * 2,
-      speed: 0.25 + random() * 0.4,
-    }));
-  }, []);
-
+function Cloud({ position = [0, 0, 0], scale = 1, seed = 1 }) {
+  const cloudRef = useRef();
+  
   useFrame(({ clock }) => {
-    if (!group.current) return;
-
-    const t = clock.elapsedTime;
-
-    group.current.children.forEach((mesh, i) => {
-      const particle = particles[i];
-
-      mesh.position.set(
-        particle.x + Math.sin(t * particle.speed + particle.phase) * 0.045,
-        particle.y + Math.sin(t * particle.speed * 1.5 + particle.phase) * 0.05,
-        particle.z + Math.cos(t * particle.speed + particle.phase) * 0.04
-      );
-    });
-  });
-
-  return (
-    <group ref={group}>
-      {particles.map((particle, i) => (
-        <mesh key={i} position={[particle.x, particle.y, particle.z]}>
-          <sphereGeometry args={[0.009, 5, 5]} />
-
-          <meshBasicMaterial
-            color={i % 3 === 0 ? C.goldLight : C.sun}
-            toneMapped={false}
-          />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-// ------------------------------------------------------------
-// Lighting
-// ------------------------------------------------------------
-
-function SceneLighting({ C }) {
-  const sunlight = useRef();
-
-  useFrame(({ clock }) => {
-    if (sunlight.current) {
-      sunlight.current.intensity =
-        1.15 + Math.sin(clock.elapsedTime * 0.3) * 0.08;
+    if (cloudRef.current) {
+      cloudRef.current.position.x = position[0] + Math.sin(clock.elapsedTime * 0.1 + seed) * 0.05;
     }
   });
 
+  const cloudParts = useMemo(() => {
+    const random = rng(seed);
+    const parts = [];
+    for (let i = 0; i < 5; i++) {
+      parts.push({
+        x: (random() - 0.5) * 0.4,
+        y: (random() - 0.5) * 0.15,
+        z: (random() - 0.5) * 0.3,
+        scale: 0.15 + random() * 0.2,
+      });
+    }
+    return parts;
+  }, [seed]);
+
   return (
-    <>
-      <ambientLight intensity={0.82} color="#E6EFD9" />
-
-      <hemisphereLight
-        args={["#DCEAD9", "#3C4938", 0.65]}
-      />
-
-      <directionalLight
-        position={[-3, 6, 4]}
-        intensity={1.8}
-        color="#FFF0CE"
-        castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-      />
-
-      <directionalLight
-        position={[3, 4, -4]}
-        intensity={0.75}
-        color="#B8D5B3"
-      />
-
-      <pointLight
-        ref={sunlight}
-        position={[-0.5, 2.3, -0.8]}
-        color={C.sun}
-        intensity={1.1}
-        distance={5}
-      />
-    </>
+    <group ref={cloudRef} position={position} scale={scale}>
+      {cloudParts.map((part, i) => (
+        <mesh key={i} position={[part.x, part.y, part.z]}>
+          <sphereGeometry args={[part.scale, 8, 8]} />
+          <meshStandardMaterial
+            color="#FFFFFF"
+            transparent
+            opacity={0.7 + (i % 2) * 0.15}
+            roughness={1}
+          />
+        </mesh>
+      ))}
+    </group>
   );
 }
 
-// ------------------------------------------------------------
-// Main scene
-// ------------------------------------------------------------
+function IrrigationChannel({ position, length, rotation = 0 }) {
+  return (
+    <group position={position} rotation={[0, rotation, 0]}>
+      <mesh receiveShadow>
+        <boxGeometry args={[length, 0.035, 0.075]} />
+        <meshStandardMaterial
+          color={COLORS.wall}
+          roughness={1}
+          flatShading
+        />
+      </mesh>
 
-export default function BanaueRiceTerraces({ themeColors }) {
+      <mesh position={[0, 0.022, 0]}>
+        <boxGeometry args={[length * 0.94, 0.012, 0.04]} />
+        <meshStandardMaterial
+          color={COLORS.waterHighlight}
+          roughness={0.25}
+          metalness={0.04}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+/* -------------------- COMPLETE SCENE -------------------- */
+
+export default function BanaueRiceTerraces({
+  isTransitioning = false,
+}) {
+  const sceneRef = useRef();
   const matrix = useMemo(() => buildMatrix(), []);
 
-  const C = useMemo(
-    () => resolveColors(themeColors),
-    [themeColors]
-  );
+  useFrame((state, delta) => {
+    if (!sceneRef.current) return;
+
+    // Keep the terrain almost still. This gives a subtle,
+    // living-scene effect without rotating the QR floor.
+    const targetY = ROOT_Y + (isTransitioning ? 0.025 : 0);
+
+    sceneRef.current.position.y = THREE.MathUtils.damp(
+      sceneRef.current.position.y,
+      targetY,
+      3,
+      delta
+    );
+  });
 
   return (
     <group
+      ref={sceneRef}
       position={[0, ROOT_Y, 0]}
       rotation={[0, Math.PI / 4, 0]}
     >
-      <SceneLighting C={C} />
+      {/* QR-code patterned ground */}
+      <QRGround matrix={matrix} />
 
-      {/* QR-inspired base */}
-      <QRGround matrix={matrix} C={C} />
+      {/* Broad, irregular green landform */}
+      <LandscapeBase />
 
-      {/* Main focal point: broad, high, curved rice terraces */}
-      <MountainTerrain C={C} />
-      <RiceTerraces C={C} />
+      {/* FOREGROUND: widest, medium-height terrace hill */}
+      <TerraceHill
+        x={-0.56}
+        z={0.48}
+        radiusX={0.78}
+        radiusZ={0.62}
+        levels={4}
+        stepHeight={0.15}
+        baseY={H_DARK}
+        rotation={-0.12}
+        seed={11}
+      />
 
-      {/* Field structure and landscape details */}
-      <Village C={C} />
-      <Forest C={C} />
-      <BorderDetails C={C} />
+      {/* MIDGROUND: central, tall focal-point hill */}
+      <TerraceHill
+        x={0}
+        z={-0.12}
+        radiusX={0.9}
+        radiusZ={0.76}
+        levels={6}
+        stepHeight={0.15}
+        baseY={H_DARK}
+        rotation={0.16}
+        seed={27}
+      />
 
-      {/* QR corner landmarks */}
-      <FinderIfugaoShrine C={C} />
-      <FinderWaterfallStream C={C} />
-      <FinderRiceGranary C={C} />
+      {/* BACKGROUND RIGHT: smaller footprint, tallest summit */}
+      <TerraceHill
+        x={0.58}
+        z={-0.67}
+        radiusX={0.68}
+        radiusZ={0.56}
+        levels={5}
+        stepHeight={0.16}
+        baseY={H_DARK}
+        rotation={0.3}
+        seed={43}
+      />
 
-      {/* Animated atmosphere */}
-      <DarkModuleDecor matrix={matrix} C={C} />
-      <MistClouds C={C} />
-      <Fireflies C={C} />
+      {/* A few subtle paths crossing the landscape */}
+      <TerracePath
+        points={[
+          [-1.1, H_DARK + 0.24, 0.9],
+          [-0.85, H_DARK + 0.3, 0.72],
+          [-0.62, H_DARK + 0.38, 0.5],
+        ]}
+        radius={0.035}
+      />
+
+      <TerracePath
+        points={[
+          [-0.48, H_DARK + 0.55, -0.45],
+          [-0.1, H_DARK + 0.72, -0.28],
+          [0.28, H_DARK + 0.85, -0.16],
+        ]}
+        radius={0.035}
+      />
+
+      {/* Narrow water channels near the foot of the hills */}
+      <IrrigationChannel
+        position={[-0.9, H_DARK + 0.2, 1.05]}
+        length={0.55}
+        rotation={-0.25}
+      />
+
+      <IrrigationChannel
+        position={[0.9, H_DARK + 0.2, 0.75]}
+        length={0.45}
+        rotation={0.45}
+      />
+
+      {/* Water pool in front-left corner */}
+      <group position={[-1.1, H_DARK + 0.02, 1.1]}>
+        <mesh position={[0, 0, 0]} receiveShadow>
+          <boxGeometry args={[0.35, 0.04, 0.35]} />
+          <meshStandardMaterial color="#4A8FB0" roughness={1} flatShading />
+        </mesh>
+        <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[0.14, 24]} />
+          <meshStandardMaterial 
+            color="#5BA3C7" 
+            roughness={0.15} 
+            metalness={0.1}
+            transparent
+            opacity={0.85}
+          />
+        </mesh>
+      </group>
+
+      {/* Water pool in back-right corner */}
+      <group position={[1.1, H_DARK + 0.02, -1.1]}>
+        <mesh position={[0, 0, 0]} receiveShadow>
+          <boxGeometry args={[0.35, 0.04, 0.35]} />
+          <meshStandardMaterial color="#4A8FB0" roughness={1} flatShading />
+        </mesh>
+        <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[0.14, 24]} />
+          <meshStandardMaterial 
+            color="#5BA3C7" 
+            roughness={0.15} 
+            metalness={0.1}
+            transparent
+            opacity={0.85}
+          />
+        </mesh>
+      </group>
+
+      {/* Floating clouds in the sky */}
+      <Cloud position={[-0.8, 1.8, -0.5]} scale={0.8} seed={42} />
+      <Cloud position={[0.9, 2.0, -0.3]} scale={0.6} seed={78} />
+      <Cloud position={[0, 2.2, 0.6]} scale={0.7} seed={123} />
     </group>
   );
 }
