@@ -1589,7 +1589,9 @@ function SceneLighting({ C }) {
 // MAIN SCENE
 // ------------------------------------------------------------
 
-export default function ParolScene({ themeColors }) {
+export default function ParolScene({ themeColors, view }) {
+  const sceneRef = useRef();
+  const groupRef = useRef();
   const matrix = useMemo(() => buildMatrix(), []);
 
   const C = useMemo(
@@ -1597,45 +1599,65 @@ export default function ParolScene({ themeColors }) {
     [themeColors]
   );
 
+  useFrame((state, delta) => {
+    if (!sceneRef.current) return;
+
+    // Get transition progress from parent TransitionRig
+    const parent = sceneRef.current.parent;
+    const transitionProgress = parent?.userData?.transitionProgress ?? 0;
+    const isQRView = parent?.userData?.isQRView ?? false;
+
+    // Transform to QR view during transition
+    if (groupRef.current) {
+      // Flatten the scene as we approach QR view
+      const flattenFactor = THREE.MathUtils.smoothstep(0.5, 1.0, transitionProgress);
+      groupRef.current.scale.y = 1 - flattenFactor * 0.95;
+      groupRef.current.position.y = -flattenFactor * 0.5;
+    }
+  });
+
   return (
     <group
+      ref={sceneRef}
       position={[0, ROOT_Y, 0]}
       rotation={[0, Math.PI / 4, 0]}
     >
-      <SceneLighting C={C} />
+      <group ref={groupRef}>
+        <SceneLighting C={C} />
 
-      <QRGround matrix={matrix} C={C} />
+        <QRGround matrix={matrix} C={C} />
 
-      {/* Main oversized centerpiece */}
-      <ParolCentre C={C} />
+        {/* Main oversized centerpiece */}
+        <ParolCentre C={C} />
 
-      {/* Traditional Filipino Christmas border */}
-      <Banderitas C={C} />
-      <BorderDecorations C={C} />
+        {/* Traditional Filipino Christmas border */}
+        <Banderitas C={C} />
+        <BorderDecorations C={C} />
 
-      {/* Extra festive ornaments around the original finder zones */}
-      <FinderDecorations C={C} />
+        {/* Extra festive ornaments around the original finder zones */}
+        <FinderDecorations C={C} />
 
-      {/* Small gifts close to the centerpiece */}
-      <group>
-        {[
-          [-0.8, 0.025, -0.42, C.red],
-          [0.78, 0.025, -0.38, C.green],
-          [-0.72, 0.025, 0.48, C.blue],
-          [0.77, 0.025, 0.46, C.pink],
-        ].map(([x, y, z, color], index) => (
-          <ChristmasGift
-            key={`center-gift-${index}`}
-            position={[x, y, z]}
-            C={C}
-            color={color}
-            scale={0.75}
-          />
-        ))}
+        {/* Small gifts close to the centerpiece */}
+        <group>
+          {[
+            [-0.8, 0.025, -0.42, C.red],
+            [0.78, 0.025, -0.38, C.green],
+            [-0.72, 0.025, 0.48, C.blue],
+            [0.77, 0.025, 0.46, C.pink],
+          ].map(([x, y, z, color], index) => (
+            <ChristmasGift
+              key={`center-gift-${index}`}
+              position={[x, y, z]}
+              C={C}
+              color={color}
+              scale={0.75}
+            />
+          ))}
+        </group>
+
+        {/* Sparkling multicolor lights */}
+        <ChristmasLights C={C} />
       </group>
-
-      {/* Sparkling multicolor lights */}
-      <ChristmasLights C={C} />
     </group>
   );
 }

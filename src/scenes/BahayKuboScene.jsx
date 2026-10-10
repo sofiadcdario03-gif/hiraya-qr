@@ -1716,23 +1716,45 @@ function SceneLighting({ C }) {
 // MAIN EXPORT
 // ============================================================
 
-export default function BahayKuboScene({ themeColors }) {
+export default function BahayKuboScene({ themeColors, view }) {
+  const sceneRef = useRef();
+  const groupRef = useRef();
   const matrix = useMemo(() => buildMatrix(), []);
   const C = useMemo(
     () => resolveColors(themeColors),
     [themeColors]
   );
 
+  useFrame((state, delta) => {
+    if (!sceneRef.current) return;
+
+    // Get transition progress from parent TransitionRig
+    const parent = sceneRef.current.parent;
+    const transitionProgress = parent?.userData?.transitionProgress ?? 0;
+    const isQRView = parent?.userData?.isQRView ?? false;
+
+    // Transform to QR view during transition
+    if (groupRef.current) {
+      // Flatten the scene as we approach QR view
+      const flattenFactor = THREE.MathUtils.smoothstep(0.5, 1.0, transitionProgress);
+      groupRef.current.scale.y = 1 - flattenFactor * 0.95;
+      groupRef.current.position.y = -flattenFactor * 0.5;
+    }
+  });
+
   return (
     <group
+      ref={sceneRef}
       position={[0, ROOT_Y, 0]}
       rotation={[0, Math.PI / 4, 0]}
     >
-      <SceneLighting C={C} />
-      <QRGround matrix={matrix} C={C} />
-      <ConnectedVillage C={C} />
-      <DarkModuleDecor matrix={matrix} C={C} />
-      <GoldenSparks C={C} />
+      <group ref={groupRef}>
+        <SceneLighting C={C} />
+        <QRGround matrix={matrix} C={C} />
+        <ConnectedVillage C={C} />
+        <DarkModuleDecor matrix={matrix} C={C} />
+        <GoldenSparks C={C} />
+      </group>
     </group>
   );
 }

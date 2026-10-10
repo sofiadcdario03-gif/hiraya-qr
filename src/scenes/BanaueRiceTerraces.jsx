@@ -983,24 +983,39 @@ function IrrigationChannel({ position, length, rotation = 0 }) {
 /* -------------------- COMPLETE SCENE -------------------- */
 
 export default function BanaueRiceTerraces({
-  isTransitioning = false,
+  view,
+  themeColors,
 }) {
   const sceneRef = useRef();
+  const groupRef = useRef();
   const matrix = useMemo(() => buildMatrix(), []);
 
   useFrame((state, delta) => {
     if (!sceneRef.current) return;
 
-    // Keep the terrain almost still. This gives a subtle,
-    // living-scene effect without rotating the QR floor.
-    const targetY = ROOT_Y + (isTransitioning ? 0.025 : 0);
+    // Get transition progress from parent TransitionRig
+    const parent = sceneRef.current.parent;
+    const transitionProgress = parent?.userData?.transitionProgress ?? 0;
+    const isQRView = parent?.userData?.isQRView ?? false;
 
-    sceneRef.current.position.y = THREE.MathUtils.damp(
-      sceneRef.current.position.y,
-      targetY,
-      3,
-      delta
-    );
+    // Subtle idle animation in world view
+    if (!isQRView) {
+      const targetY = ROOT_Y;
+      sceneRef.current.position.y = THREE.MathUtils.damp(
+        sceneRef.current.position.y,
+        targetY,
+        3,
+        delta
+      );
+    }
+
+    // Transform to QR view during transition
+    if (groupRef.current) {
+      // Flatten the scene as we approach QR view
+      const flattenFactor = THREE.MathUtils.smoothstep(0.5, 1.0, transitionProgress);
+      groupRef.current.scale.y = 1 - flattenFactor * 0.95;
+      groupRef.current.position.y = -flattenFactor * 0.5;
+    }
   });
 
   return (
@@ -1009,11 +1024,12 @@ export default function BanaueRiceTerraces({
       position={[0, ROOT_Y, 0]}
       rotation={[0, Math.PI / 4, 0]}
     >
-      {/* QR-code patterned ground */}
-      <QRGround matrix={matrix} />
+      <group ref={groupRef}>
+        {/* QR-code patterned ground */}
+        <QRGround matrix={matrix} />
 
-      {/* Broad, irregular green landform */}
-      <LandscapeBase />
+        {/* Broad, irregular green landform */}
+        <LandscapeBase />
 
       {/* FOREGROUND: widest, medium-height terrace hill */}
       <TerraceHill
@@ -1126,6 +1142,7 @@ export default function BanaueRiceTerraces({
       <Cloud position={[-0.8, 1.8, -0.5]} scale={0.8} seed={42} />
       <Cloud position={[0.9, 2.0, -0.3]} scale={0.6} seed={78} />
       <Cloud position={[0, 2.2, 0.6]} scale={0.7} seed={123} />
+      </group>
     </group>
   );
 }

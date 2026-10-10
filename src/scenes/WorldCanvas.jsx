@@ -20,10 +20,8 @@ const CAM = {
 const TARGET = [0, 0, 0];
 
 // Transition durations (seconds)
-const T_WORLD_TO_TOP = 1.4;   // angled → top-down sweep
-const T_PAUSE_TOP    = 0.75;  // hold at top to reveal QR pattern
-const T_TOP_TO_QR    = 0.9;   // top-down → flat QR slide
-const T_QR_TO_WORLD  = 1.3;   // reverse: QR → world
+const T_WORLD_TO_QR  = 2.5;   // continuous world → topdown → QR transformation
+const T_QR_TO_WORLD  = 2.0;   // reverse: QR → world
 
 const easeOut  = (t) => 1 - Math.pow(1 - t, 3);
 const easeIn   = (t) => t * t * t;
@@ -37,52 +35,34 @@ const smoothstep = (a, b, x) => {
 // ─── TransitionRig ────────────────────────────────────────────────
 //
 //  view = "world":
-//    Tap → camera arcs up to top-down (easeOut, T_WORLD_TO_TOP s),
-//    pauses T_PAUSE_TOP s while the QR pattern is visible in the scene,
-//    then automatically slides to the flat QR plane (easeIn, T_TOP_TO_QR s).
-//    No second tap needed. onTransitionComplete fires when QR is fully visible.
+//    Tap → camera smoothly animates to top-down view (T_WORLD_TO_QR s)
+//    During animation, the world scene transforms into QR pattern
+//    No pause, no separate QR plane - continuous transformation
+//    onTransitionComplete fires when fully at QR view
 //
 //  view = "qr":
-//    Tap → everything reverses: QR fades, camera returns to world angle.
-//    onTransitionComplete fires when back at world.
+//    Tap → reverse: QR transforms back to world, camera returns
+//    onTransitionComplete fires when back at world
 //
-function TransitionRig({ view, qrTexture, onTransitionComplete, children }) {
-  const { camera, viewport } = useThree();
+function TransitionRig({ view, onTransitionComplete, children }) {
+  const { camera } = useThree();
 
-  // phase tracks the continuous internal animation:
-  //   0.0  = world (resting)
-  //   0.0→1.0 = sweep world→topdown  (phase A, T_WORLD_TO_TOP s)
-  //   1.0  = pause at topdown        (phase B, T_PAUSE_TOP s)
-  //   1.0→2.0 = slide topdown→qr    (phase C, T_TOP_TO_QR s)
-  //   2.0  = QR (resting)
-  //
-  // Going back reverses: 2.0→0.0 in T_QR_TO_WORLD s (no topdown pause on return).
-
-  const phase     = useRef(view === "qr" ? 2.0 : 0.0);
-  const pauseAcc  = useRef(0);       // accumulator for the topdown pause
-  const inPause   = useRef(false);
-  const pending   = useRef(false);   // fires completion once per toggle
-
-  const worldRef  = useRef();
-  const qrRef     = useRef();
+  // Single phase 0→1 for continuous animation:
+  //   0.0 = world (resting)
+  //   0.0→1.0 = world → topdown + QR transformation
+  //   1.0 = QR (resting)
+  const phase   = useRef(view === "qr" ? 1.0 : 0.0);
+  const pending = useRef(false);
+  const worldRef = useRef();
 
   // detect view change → arm the animation
-  const prevView  = useRef(view);
+  const prevView = useRef(view);
   useEffect(() => {
     if (prevView.current !== view) {
       prevView.current = view;
-      pending.current  = true;
-      inPause.current  = false;
-      pauseAcc.current = 0;
+      pending.current = true;
     }
   }, [view]);
-
-  useEffect(() => {
-    if (qrTexture) {
-      qrTexture.colorSpace = THREE.SRGBColorSpace;
-      qrTexture.needsUpdate = true;
-    }
-  }, [qrTexture]);
 
   useFrame((_, delta) => {
     const goingToQR   = view === "qr";
@@ -90,98 +70,36 @@ function TransitionRig({ view, qrTexture, onTransitionComplete, children }) {
     const ph = phase.current;
 
     // ── advance phase ────────────────────────────────────────────
-    if (goingToQR) {
-      if (ph < 1.0) {
-        // Phase A: world → topdown
-        phase.current = Math.min(ph + delta / T_WORLD_TO_TOP, 1.0);
-      } else if (ph >= 1.0 && ph < 2.0) {
-        // Phase B: pause at topdown, then phase C: topdown → qr
-        if (!inPause.current) {
-          inPause.current  = true;
-          pauseAcc.current = 0;
-        }
-        if (pauseAcc.current < T_PAUSE_TOP) {
-          pauseAcc.current += delta;
-        } else {
-          // Phase C kicks in
-          inPause.current = false;
-          phase.current = Math.min(ph + delta / T_TOP_TO_QR, 2.0);
-        }
-      }
-    } else {
-      // Going back to world — smooth single arc, skip topdown pause
-      if (ph > 0) {
-        phase.current = Math.max(ph - delta / T_QR_TO_WORLD, 0.0);
-      }
+    if (goingToQR && ph < 1.0) {
+      phase.current = Math.min(ph + delta / T_WORLD_TO_QR, 1.0);
+    } else if (goingToWorld && ph > 0) {
+      phase.current = Math.max(ph - delta / T_QR_TO_WORLD, 0.0);
     }
 
     const p = phase.current;
 
-    // ── camera ───────────────────────────────────────────────────
-    let cx, cy, cz;
-    if (p <= 1.0) {
-      // world → topdown
-      const t = goingToQR ? easeOut(p) : easeOut(1 - p);  // always ease out arriving
-      const e = goingToQR ? easeOut(p) : 1 - easeIn(1 - p);
-      cx = THREE.MathUtils.lerp(CAM.world[0], CAM.topdown[0], e);
-      cy = THREE.MathUtils.lerp(CAM.world[1], CAM.topdown[1], e);
-      cz = THREE.MathUtils.lerp(CAM.world[2], CAM.topdown[2], e);
-    } else {
-      // topdown → qr  (p goes 1→2)
-      const e = easeInOut((p - 1.0));
-      cx = THREE.MathUtils.lerp(CAM.topdown[0], CAM.qr[0], e);
-      cy = THREE.MathUtils.lerp(CAM.topdown[1], CAM.qr[1], e);
-      cz = THREE.MathUtils.lerp(CAM.topdown[2], CAM.qr[2], e);
-    }
-    camera.position.set(cx, cy, cz);
+    // ── camera: world → topdown throughout animation ─────────────
+    const e = goingToQR ? easeInOut(p) : easeInOut(1 - p);
+    camera.position.x = THREE.MathUtils.lerp(CAM.world[0], CAM.topdown[0], e);
+    camera.position.y = THREE.MathUtils.lerp(CAM.world[1], CAM.topdown[1], e);
+    camera.position.z = THREE.MathUtils.lerp(CAM.world[2], CAM.topdown[2], e);
     camera.lookAt(...TARGET);
 
-    // ── 3-D world: sinks + fades only during phase C ─────────────
+    // ── world scene: pass transition progress to children ─────────
     if (worldRef.current) {
-      // Only fade during the topdown→qr leg (p 1→2)
-      const fadeT = smoothstep(1.0, 2.0, p);
-      const eF    = easeInOut(fadeT);
-      worldRef.current.scale.setScalar(1 - eF * 0.3);
-      worldRef.current.position.y = -eF * 1.1;
-      worldRef.current.rotation.y = eF * 0.4;
-      worldRef.current.visible    = eF < 0.99;
-    }
-
-    // ── flat QR plane: fades in during phase C ───────────────────
-    if (qrRef.current) {
-      const q    = smoothstep(1.55, 2.0, p);   // starts fading after topdown pause
-      const v    = viewport.getCurrentViewport(camera, [0, 0, 0]);
-      const size = Math.min(v.width, v.height) * 0.82;
-      qrRef.current.visible          = q > 0.003;
-      qrRef.current.material.opacity = q;
-      qrRef.current.scale.setScalar(size * (0.92 + 0.08 * q));
+      worldRef.current.userData.transitionProgress = p;
+      worldRef.current.userData.isQRView = goingToQR && p >= 0.95;
     }
 
     // ── completion ───────────────────────────────────────────────
-    const atRest = goingToQR ? p >= 2.0 : p <= 0.0;
+    const atRest = goingToQR ? p >= 1.0 : p <= 0.0;
     if (pending.current && atRest) {
       pending.current = false;
       onTransitionComplete?.();
     }
   });
 
-  return (
-    <>
-      <group ref={worldRef}>{children}</group>
-
-      {/* Flat QR plane – faces camera at z=0 */}
-      <mesh ref={qrRef} position={[0, 0, 0.5]} visible={false}>
-        <planeGeometry args={[1, 1]} />
-        <meshBasicMaterial
-          map={qrTexture}
-          transparent
-          opacity={0}
-          toneMapped={false}
-          depthWrite={false}
-        />
-      </mesh>
-    </>
-  );
+  return <group ref={worldRef}>{children}</group>;
 }
 
 // ─── scene registry ───────────────────────────────────────────────
@@ -227,13 +145,10 @@ export default function WorldCanvas({
 
         <TransitionRig
           view={view}
-          qrTexture={qrTexture}
           onTransitionComplete={onTransitionComplete}
         >
           <SceneComponent
-            view="world"
-            qrTexture={qrTexture}
-            isTransitioning={false}
+            view={view}
             themeColors={theme.colors}
           />
         </TransitionRig>
