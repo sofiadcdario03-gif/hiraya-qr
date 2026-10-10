@@ -1216,10 +1216,10 @@ function WispyCloudBank({
         ],
         color:
           i % 4 === 0
-            ? C.ivory
+            ? "#A8D4E6"
             : i % 3 === 0
-              ? C.mistLight
-              : C.mist,
+              ? "#B8E0F0"
+              : "#C8ECF5",
         opacity: opacity * (0.62 + random() * 0.42),
         drift: 0.02 + random() * 0.045,
         phase: random() * Math.PI * 2,
