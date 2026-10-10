@@ -219,47 +219,46 @@ function QRGround({ matrix, C }) {
   );
 }
 
-// ─── Finder Landmark A – Balete tree (top-left corner) ────────────
+// ─── Finder Landmark A – Magical Mushroom Grove (top-left corner) ────────────
 // Occupies the 7×7 finder zone at grid [0,0]
-function FinderTree({ C }) {
-  // Centre of top-left finder = offset (3,3) in grid → world:
-  const cx = (3 - (GRID-1)/2) * TILE;   // ≈ -1.30
+function FinderMushroomGrove({ C }) {
+  const cx = (3 - (GRID-1)/2) * TILE;
   const cz = (3 - (GRID-1)/2) * TILE;
 
-  const canopyBlocks = useMemo(() => {
+  const mushrooms = useMemo(() => {
     const r = rng(42);
-    return Array.from({length:18},(_,i)=>{
-      const angle = (i/18)*Math.PI*2 + r()*0.3;
-      const radius = 0.25 + r()*0.18;
-      const layer  = Math.floor(r()*3);
+    return Array.from({length:8},(_,i)=>{
+      const angle = (i/8)*Math.PI*2 + r()*0.2;
+      const radius = 0.05 + r()*0.12;
+      const h = 0.04 + r()*0.06;
+      const capC = [C.gold, C.waterLight, "#a78bfa", "#f472b6"][i%4];
       return {
-        pos: [Math.cos(angle)*radius, 0.35+layer*0.18+r()*0.08, Math.sin(angle)*radius],
-        r:   0.12+r()*0.09,
-        color: [C.leafDark,C.leaf,C.leafLight][i%3],
+        pos: [Math.cos(angle)*radius, h/2, Math.sin(angle)*radius],
+        h, capC,
+        stemR: 0.008 + r()*0.004,
+        capR: 0.015 + r()*0.01,
       };
     });
   }, [C]);
 
   return (
     <group position={[cx, H_FINDER, cz]}>
-      {/* trunk */}
-      <Box pos={[0,0.22,0]} size={[0.10,0.44,0.09]} color={C.trunk} />
-      <Box pos={[0,0.14,0]} size={[0.14,0.12,0.13]} color={C.trunk} />
-      {/* roots */}
-      {[0,1,2,3].map(i=>{
-        const a=(i/4)*Math.PI*2;
-        return <Box key={i} pos={[Math.cos(a)*0.12,0.06,Math.sin(a)*0.10]}
-                    size={[0.04,0.05,0.10]} rot={[0,a,0.4]} color={C.trunk} />;
-      })}
-      {/* canopy */}
-      {canopyBlocks.map((b,i)=>(
-        <Sphere key={i} pos={b.pos} r={b.r} color={b.color} squash={[1.1,0.75,1.05]} />
+      {/* Small raised platform */}
+      <Box pos={[0,0.02,0]} size={[0.22,0.04,0.22]} color={C.stoneLight} />
+      {/* Mushrooms */}
+      {mushrooms.map((m,i)=>(
+        <group key={i} position={m.pos}>
+          <Box pos={[0,m.h/2,0]} size={[m.stemR*2,m.h,m.stemR*2]} color="#e5ddc5" />
+          <Box pos={[0,m.h,0]} size={[m.capR*2,0.012,m.capR*2]} color={m.capC} />
+          <GlowPx pos={[0,m.h+0.015,0]} color={m.capC} size={0.008} />
+        </group>
       ))}
-      {/* glow hollow */}
-      <mesh position={[0.06,0.22,0.06]}>
-        <boxGeometry args={[0.03,0.07,0.02]} />
+      {/* Glowing center crystal */}
+      <mesh position={[0,0.08,0]}>
+        <icosahedronGeometry args={[0.025, 0]} />
         <meshBasicMaterial color={C.gold} toneMapped={false} />
       </mesh>
+      <GlowPx pos={[0,0.12,0]} color={C.waterLight} size={0.015} />
     </group>
   );
 }
@@ -322,6 +321,136 @@ function FinderSpring({ C }) {
       ))}
       <GlowPx pos={[0,0.18,0]} color={C.waterLight} size={0.028} />
       <pointLight position={[cx,0.3,cz]} color={C.waterLight} intensity={0.8} distance={1.2} />
+    </group>
+  );
+}
+
+// ─── CENTRE FOCAL POINT: Enchanted Balete Tree ─────────────────────
+// Sits at world origin [0,0,0] — the largest structure in the scene.
+function CentreBaleteTree({ C }) {
+  const treeRef = useRef();
+  const glowRef = useRef();
+
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    // Gentle magical sway
+    if (treeRef.current) {
+      treeRef.current.rotation.y = Math.sin(t * 0.25) * 0.05;
+    }
+    // Inner glow pulse
+    if (glowRef.current) {
+      glowRef.current.intensity = 1.0 + Math.sin(t * 2) * 0.3;
+    }
+  });
+
+  const baseY = H_DARK;
+
+  return (
+    <group position={[0, baseY, 0]}>
+
+      {/* ─── Massive trunk ──────────────────────────────────────── */}
+      <group ref={treeRef}>
+        {/* Main trunk */}
+        <Box pos={[0,0.45,0]} size={[0.18,0.9,0.16]} color={C.trunk} />
+        {/* Trunk base flare */}
+        <Box pos={[0,0.15,0]} size={[0.24,0.15,0.22]} color={C.trunk} />
+        {/* Trunk texture ridges */}
+        {[0,1,2,3].map(i => {
+          const a = (i/4)*Math.PI*2;
+          return (
+            <Box key={i} pos={[Math.cos(a)*0.09, 0.5, Math.sin(a)*0.08]} 
+                 size={[0.025,0.7,0.02]} rot={[0,a,0]} color={darken(C.trunk, 0.15)} />
+          );
+        })}
+
+        {/* ─── Aerial roots hanging from trunk ──────────────────── */}
+        {[0,1,2,3,4,5].map(i => {
+          const a = (i/6)*Math.PI*2;
+          const h = 0.15 + Math.random()*0.2;
+          return (
+            <Box key={i} pos={[Math.cos(a)*0.14, 0.5, Math.sin(a)*0.12]} 
+                 size={[0.015,h,0.015]} rot={[0.1, a, 0.15]} color={C.trunk} />
+          );
+        })}
+
+        {/* ─── Massive bushy canopy ──────────────────────────────── */}
+        {(() => {
+          const r = rng(999);
+          const canopy = [];
+          // Lower layer - wider spread
+          for(let i=0; i<25; i++) {
+            const angle = (i/25)*Math.PI*2 + r()*0.4;
+            const radius = 0.35 + r()*0.25;
+            canopy.push({
+              pos: [Math.cos(angle)*radius, 0.95 + r()*0.15, Math.sin(angle)*radius],
+              r: 0.18 + r()*0.12,
+              color: [C.leafDark, C.leaf, C.leafLight][i%3],
+            });
+          }
+          // Middle layer
+          for(let i=0; i<18; i++) {
+            const angle = (i/18)*Math.PI*2 + r()*0.5;
+            const radius = 0.25 + r()*0.18;
+            canopy.push({
+              pos: [Math.cos(angle)*radius, 1.18 + r()*0.12, Math.sin(angle)*radius],
+              r: 0.14 + r()*0.10,
+              color: [C.leaf, C.leafLight, C.gold][i%3],
+            });
+          }
+          // Top layer - crown
+          for(let i=0; i<12; i++) {
+            const angle = (i/12)*Math.PI*2 + r()*0.6;
+            const radius = 0.12 + r()*0.12;
+            canopy.push({
+              pos: [Math.cos(angle)*radius, 1.35 + r()*0.10, Math.sin(angle)*radius],
+              r: 0.10 + r()*0.08,
+              color: [C.leafLight, C.gold, C.waterLight][i%3],
+            });
+          }
+          return canopy.map((b,i) => (
+            <Sphere key={i} pos={b.pos} r={b.r} color={b.color} squash={[1.15,0.8,1.1]} />
+          ));
+        })()}
+
+        {/* ─── Magical glow hollow in the trunk ──────────────────── */}
+        <mesh position={[0.08, 0.45, 0.08]}>
+          <boxGeometry args={[0.04, 0.12, 0.03]} />
+          <meshBasicMaterial color={C.gold} toneMapped={false} />
+        </mesh>
+        <mesh position={[-0.06, 0.52, 0.07]}>
+          <boxGeometry args={[0.03, 0.08, 0.025]} />
+          <meshBasicMaterial color={C.waterLight} toneMapped={false} />
+        </mesh>
+
+        {/* ─── Point light from the tree ─────────────────────────── */}
+        <pointLight ref={glowRef} position={[0, 1.0, 0]} color={C.gold} intensity={1.2} distance={2.5} />
+      </group>
+
+      {/* ─── Stone platform around tree base ──────────────────────── */}
+      <Box pos={[0,0.04,0]} size={[0.6,0.08,0.6]} color={C.stone} />
+      <Box pos={[0,0.09,0]} size={[0.5,0.04,0.5]} color={C.stoneLight} />
+
+      {/* ─── Flowers around the platform ─────────────────────────── */}
+      {[0,1,2,3,4,5,6,7].map(i => {
+        const a = (i/8)*Math.PI*2;
+        const r = 0.28 + (i%2)*0.08;
+        return (
+          <SmallFlower key={i} pos={[Math.cos(a)*r, 0.11, Math.sin(a)*r]} color={[C.gold,"#f472b6","#a78bfa"][i%3]} C={C} />
+        );
+      })}
+
+      {/* ─── Fairy lights hanging from branches ──────────────────── */}
+      {[0,1,2,3,4].map(i => {
+        const a = (i/5)*Math.PI*2;
+        const r = 0.3 + Math.random()*0.15;
+        return (
+          <group key={i} position={[Math.cos(a)*r, 1.0, Math.sin(a)*r]}>
+            <Box pos={[0,-0.08,0]} size={[0.006,0.16,0.006]} color={C.trunk} />
+            <GlowPx pos={[0,0,0]} color={C.gold} size={0.012} />
+            <pointLight position={[Math.cos(a)*r, 1.1+baseY, Math.sin(a)*r]} color={C.gold} intensity={0.3} distance={0.6} />
+          </group>
+        );
+      })}
     </group>
   );
 }
@@ -509,8 +638,11 @@ export default function DiwataScene({ themeColors: themeProp }) {
       {/* Ground: the QR grid */}
       <QRGround matrix={matrix} C={C} />
 
+      {/* CENTRE FOCAL POINT: Enchanted Balete Tree */}
+      <CentreBaleteTree C={C} />
+
       {/* Finder pattern landmarks */}
-      <FinderTree   C={C} />
+      <FinderMushroomGrove C={C} />
       <FinderShrine C={C} />
       <FinderSpring C={C} />
 

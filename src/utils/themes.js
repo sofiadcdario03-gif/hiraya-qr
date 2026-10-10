@@ -39,9 +39,9 @@ export const themes = {
     },
   },
 
-  sarimanok: {
-    name: 'Sarimanok Sanctuary',
-    id: 'sarimanok',
+  coral: {
+    name: 'Coral Kingdom',
+    id: 'coral',
     colors: {
       primary:    '#9b1c1c',
       secondary:  '#fbbf24',
@@ -65,19 +65,6 @@ export const themes = {
     },
   },
 
-  mariaMakiling: {
-    name: "Maria Makiling's Mountain",
-    id: 'mariaMakiling',
-    colors: {
-      primary:    '#1e3a5f',
-      secondary:  '#3b82f6',
-      accent:     '#fbbf24',
-      background: '#0f172a',
-      dark:       '#172d4a',   // midnight blue          – on sky tint → 9.2:1
-      light:      '#eef5ff',   // pale sky blue
-    },
-  },
-
   coralKingdom: {
     name: 'Philippine Coral Kingdom',
     id: 'coralKingdom',
@@ -88,6 +75,19 @@ export const themes = {
       background: '#0c4a6e',
       dark:       '#0b4a5e',   // deep ocean teal       – on seafoam → 7.5:1
       light:      '#e0fafa',   // pale seafoam
+    },
+  },
+
+  elnido: {
+    name: 'El Nido Lagoon',
+    id: 'elnido',
+    colors: {
+      primary:    '#6b4c2a',   // warm limestone brown
+      secondary:  '#0891b2',   // turquoise lagoon
+      accent:     '#fbbf24',   // golden sun
+      background: '#0c2a3a',
+      dark:       '#5a3e22',   // deep limestone          – on pale aqua → 7.8:1
+      light:      '#e8f8fc',   // pale sky-aqua
     },
   },
 };
