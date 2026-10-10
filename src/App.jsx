@@ -84,7 +84,10 @@ export default function App() {
           <svg className="brand-icon" viewBox="0 0 32 32" aria-hidden="true">
             <path d="M16 2L2 8v16l14 6 14-6V8L16 2zm0 2.5L28 9.5 16 14.5 4 9.5 16 4.5zM4 11.5l11 5v12l-11-5v-12zm13 17v-12l11-5v12l-11 5z" />
           </svg>
-          <span className="brand-name">Hiraya QR</span>
+          <div className="header-content">
+            <span className="brand-name">Hiraya QR</span>
+            <span className="subtitle">Transform links into 3D worlds</span>
+          </div>
         </div>
 
         <span
