@@ -1045,7 +1045,8 @@ function Cloud({ position = [0, 0, 0], scale = 1, seed = 1 }) {
   
   useFrame(({ clock }) => {
     if (cloudRef.current) {
-      cloudRef.current.position.x = position[0] + Math.sin(clock.elapsedTime * 0.1 + seed) * 0.05;
+      cloudRef.current.position.x = position[0] + Math.sin(clock.elapsedTime * 0.3 + seed) * 0.15;
+      cloudRef.current.position.z = position[2] + Math.cos(clock.elapsedTime * 0.2 + seed) * 0.1;
     }
   });
 
